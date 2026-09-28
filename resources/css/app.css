@@ -1,0 +1,71 @@
+@import 'tailwindcss';
+
+/*
+ * Fuentes autoalojadas. No se usan desde un CDN a proposito: el asesor abre
+ * esto en la calle con mala senal, y una fuente que no carga deja la pantalla
+ * saltando de tipografia a media lectura.
+ */
+@import '@fontsource/archivo/500.css';
+@import '@fontsource/archivo/600.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+/*
+ * Lenguaje visual de Pedidos SEGUREX.
+ *
+ * La paleta sale de los acabados que vende la empresa -- satin niquel, negro
+ * mate, cromado -- no de una plantilla: grises frios de metal, con el naranja
+ * corporativo reservado para una sola cosa, la accion principal. Si el naranja
+ * aparece en dos lugares de una pantalla, uno de los dos sobra.
+ *
+ * Pensado para un celular bajo el sol, en una ferreteria o en obra: contraste
+ * alto, areas de toque grandes, nada de gris claro sobre blanco.
+ */
+@theme {
+    --font-titulo: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+    --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+
+    --color-acero: #e8e9eb;
+    --color-acero-hondo: #d6d9dd;
+    --color-grafito: #23272b;
+    --color-grafito-suave: #3a4046;
+    --color-niquel: #7d868f;
+    --color-niquel-claro: #9aa3ab;
+    --color-naranja: #f65810;
+    --color-naranja-hondo: #d4490b;
+}
+
+html {
+    background: var(--color-acero);
+}
+
+body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    color: var(--color-grafito);
+}
+
+/* Los codigos SN y las cifras se comparan digito a digito. */
+.cifras {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+}
+
+/* Foco visible siempre: hay quien navega con teclado en el escritorio. */
+:focus-visible {
+    outline: 2px solid var(--color-naranja);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}

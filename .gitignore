@@ -1,0 +1,35 @@
+*.log
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/node_modules
+# public/build SI se versiona: el servidor no tiene Node para compilarlo.
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+Thumbs.db
+
+# Datos de clientes y precios: nunca al repositorio.
+/storage/importaciones/*
+!/storage/importaciones/.gitignore
+*.csv
+*.xlsx
+# Paquetes de despliegue
+*.zip
