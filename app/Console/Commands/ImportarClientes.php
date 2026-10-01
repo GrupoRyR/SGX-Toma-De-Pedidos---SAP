@@ -17,8 +17,9 @@ use Illuminate\Support\Str;
  * Hace upsert por codigo_sn: nunca borra clientes que no vengan en el archivo,
  * porque una exportacion parcial no debe vaciar la cartera de nadie.
  *
- * Crea sobre la marcha los asesores SAP que encuentre en el campo asesor. Ese
- * texto es la llave real de visibilidad, asi que se guarda tal cual viene.
+ * La cartera del campo asesor se reconoce por su numero ("14 ..."), que es fijo
+ * en SAP. Si el numero ya existe se usa esa cartera sin renombrarla; si no, se
+ * crea con el texto tal cual. Un texto sin numero es error de la fila.
  *
  *   php artisan pedidos:importar-clientes ruta/CLIENTES_SAP.csv
  *   php artisan pedidos:importar-clientes ruta/CLIENTES_SAP.csv --simular
@@ -88,10 +89,14 @@ class ImportarClientes extends Command
                 $textoAsesor = trim((string) ($fila[$indices['asesor']] ?? ''));
 
                 if ($textoAsesor !== '') {
-                    $asesor = AsesorSap::firstOrCreate(
-                        ['codigo_texto' => $textoAsesor],
-                        ['nombre' => FormatoMaestros::nombreDelAsesor($textoAsesor), 'activo' => true],
-                    );
+                    try {
+                        $asesor = AsesorSap::resolverDesdeTexto($textoAsesor);
+                    } catch (\RuntimeException $e) {
+                        $resumen['errores']++;
+                        $errores[] = ['fila' => $resumen['leidas'], 'motivo' => $e->getMessage()];
+
+                        continue;
+                    }
 
                     if ($asesor->wasRecentlyCreated) {
                         $asesoresNuevos[] = $textoAsesor;

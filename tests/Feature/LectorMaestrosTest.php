@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AsesorSap;
 use App\Models\Cliente;
+use App\Models\Importacion;
 use App\Models\Producto;
 use App\Services\LectorMaestros;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -180,6 +181,24 @@ class LectorMaestrosTest extends TestCase
         $this->assertEquals(28, (float) $cliente->porcentaje_descuento);
         $this->assertSame('Distribucion', $cliente->canal->nombre);
         $this->assertSame('MONICA RIVERA AREVALO', AsesorSap::where('codigo_texto', '14 MONICA RIVERA AREVALO')->value('nombre'));
+    }
+
+    public function test_el_comando_de_clientes_reconoce_la_cartera_por_numero(): void
+    {
+        $cartera = AsesorSap::create(['codigo_texto' => '14 MONICA RIVERA AREVALO']);
+
+        $csv = "Codigo SN,Nombre,Asesor\nCN0507,RIVERA TUTA JOSE,14 OTRA PERSONA\nCN0508,SIN CARTERA BIEN,MONICA SIN NUMERO\n";
+
+        $this->artisan('pedidos:importar-clientes', ['archivo' => $this->archivo($csv, 'csv')])->assertSuccessful();
+
+        // Va a la 14 que ya existe, sin renombrarla ni crear otra.
+        $this->assertSame($cartera->id, Cliente::where('codigo_sn', 'CN0507')->value('asesor_sap_id'));
+        $this->assertSame('14 MONICA RIVERA AREVALO', $cartera->refresh()->codigo_texto);
+        $this->assertSame(1, AsesorSap::count());
+
+        // El texto sin numero no se carga: es un error de la fila.
+        $this->assertFalse(Cliente::where('codigo_sn', 'CN0508')->exists());
+        $this->assertSame(1, Importacion::firstOrFail()->errores);
     }
 
     public function test_el_comando_de_precios_sigue_leyendo_la_coma_de_miles(): void

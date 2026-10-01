@@ -204,6 +204,58 @@ class CargaMaestrosTest extends TestCase
         $this->assertSame(1, Importacion::firstOrFail()->errores);
     }
 
+    // ---------- La cartera se reconoce por su numero ----------
+
+    private function cargarCsv(string $csv): Testable
+    {
+        return Livewire::actingAs($this->admin)->test('maestros-cargar')
+            ->set('tipo', 'clientes')
+            ->set('archivo', UploadedFile::fake()->createWithContent('clientes.csv', $csv));
+    }
+
+    public function test_la_cartera_con_otro_nombre_y_el_mismo_numero_no_cuenta_como_cambio(): void
+    {
+        $componente = $this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0507,RIVERA TUTA JOSE OSVALDO,14 OTRA PERSONA\n");
+
+        $this->assertSame('IGUAL', $this->fila($componente, 2)['estado']);
+    }
+
+    public function test_un_cliente_con_la_cartera_renombrada_en_el_archivo_va_a_la_existente_y_avisa(): void
+    {
+        $componente = $this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0777,FERRETERIA OTRA,14 OTRA PERSONA\n");
+
+        $fila = $this->fila($componente, 2);
+        $this->assertSame('NUEVO', $fila['estado']);
+        $this->assertContains(
+            'La cartera 14 se llama "14 MONICA RIVERA AREVALO" aqui y "14 OTRA PERSONA" en el archivo: se usa la existente. Para renombrarla, ve a Carteras.',
+            $fila['avisos'],
+        );
+
+        $componente->call('seleccionarValidos')->call('cargar');
+
+        $cartera = AsesorSap::where('numero', 14)->sole();
+        $this->assertSame('14 MONICA RIVERA AREVALO', $cartera->codigo_texto);
+        $this->assertSame($cartera->id, Cliente::where('codigo_sn', 'CN0777')->value('asesor_sap_id'));
+        $this->assertSame(1, AsesorSap::count());
+    }
+
+    public function test_una_cartera_sin_numero_es_error(): void
+    {
+        $fila = $this->fila($this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0777,FERRETERIA OTRA,MONICA RIVERA\n"), 2);
+
+        $this->assertSame('ERROR', $fila['estado']);
+        $this->assertStringContainsString('no empieza con su numero', $fila['motivo']);
+    }
+
+    public function test_avisa_si_la_cartera_esta_inactiva(): void
+    {
+        AsesorSap::where('numero', 14)->update(['activo' => false]);
+
+        $fila = $this->fila($this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0777,FERRETERIA OTRA,14 MONICA RIVERA AREVALO\n"), 2);
+
+        $this->assertStringContainsString('La cartera 14 esta inactiva', implode(' ', $fila['avisos']));
+    }
+
     public function test_productos_desde_excel(): void
     {
         $ruta = tempnam(sys_get_temp_dir(), 'carga').'.xlsx';

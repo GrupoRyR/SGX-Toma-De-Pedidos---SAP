@@ -60,8 +60,7 @@ class AsignacionesSeeder extends Seeder
 
             $ids = [];
             foreach ($numeros as $numero) {
-                // "14 MONICA RIVERA AREVALO" empieza con "14 ".
-                $asesores = AsesorSap::where('codigo_texto', 'like', $numero.' %')->pluck('id');
+                $asesores = AsesorSap::where('numero', $numero)->pluck('id');
 
                 if ($asesores->isEmpty()) {
                     $sinAsesor[] = "{$correo} -> {$numero}";

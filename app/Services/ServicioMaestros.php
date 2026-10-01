@@ -8,7 +8,6 @@ use App\Models\Cliente;
 use App\Models\Importacion;
 use App\Models\Producto;
 use App\Models\Usuario;
-use App\Support\FormatoMaestros;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -189,7 +188,8 @@ class ServicioMaestros
 
         $contexto = $esClientes ? [
             'canales' => Canal::pluck('nombre')->mapWithKeys(fn ($n) => [mb_strtolower($n) => true])->all(),
-            'carteras' => AsesorSap::withCount('usuarios')->get()->keyBy('codigo_texto'),
+            // Por numero: es la llave fija con SAP, el nombre puede venir distinto.
+            'carteras' => AsesorSap::withCount('usuarios')->get()->keyBy('numero'),
         ] : [];
 
         $vistos = [];
@@ -219,7 +219,7 @@ class ServicioMaestros
 
                 $actual = $existentes[$clave] ?? null;
                 [$propuesto, $antes] = $esClientes
-                    ? $this->propuestaCliente($valores, $actual)
+                    ? $this->propuestaCliente($valores, $actual, $contexto)
                     : $this->propuestaProducto($valores, $actual);
             } catch (RuntimeException $e) {
                 $resultado['motivo'] = $e->getMessage();
@@ -245,7 +245,7 @@ class ServicioMaestros
             $resultado['cambios'] = $cambios;
             $resultado['estado'] = ! $actual ? 'NUEVO' : ($cambios ? 'CAMBIA' : 'IGUAL');
             $resultado['avisos'] = $esClientes && $resultado['estado'] !== 'IGUAL'
-                ? $this->avisosCliente($cambios, $actual, $contexto)
+                ? $this->avisosCliente($cambios, $actual, $contexto, $valores)
                 : [];
 
             return $resultado;
@@ -358,7 +358,7 @@ class ServicioMaestros
     }
 
     /** @return array{0: array<string, mixed>, 1: array<string, mixed>} lo propuesto y lo actual, comparables */
-    private function propuestaCliente(array $valores, ?Cliente $actual): array
+    private function propuestaCliente(array $valores, ?Cliente $actual, array $contexto): array
     {
         $propuesto = [];
 
@@ -374,9 +374,18 @@ class ServicioMaestros
             $propuesto['canal'] = Str::title(Str::lower(trim((string) $valores['canal'])));
         }
 
-        // La cartera va tal cual: ese texto exacto es la llave de visibilidad.
-        if (isset($valores['asesor'])) {
-            $propuesto['asesor'] = trim((string) $valores['asesor']);
+        // La cartera se reconoce por su numero. Si ya existe, lo propuesto es
+        // la cartera tal como se llama aqui: asi un cliente que sigue en la 14
+        // no aparece como cambio solo porque el archivo trae otro nombre.
+        if (isset($valores['asesor']) && trim((string) $valores['asesor']) !== '') {
+            $texto = trim((string) $valores['asesor']);
+            $numero = AsesorSap::numeroDelTexto($texto);
+
+            if ($numero === null) {
+                throw new RuntimeException("La cartera \"{$texto}\" no empieza con su numero (por ejemplo \"14 MONICA RIVERA AREVALO\").");
+            }
+
+            $propuesto['asesor'] = $contexto['carteras'][$numero]->codigo_texto ?? $texto;
         }
 
         if (isset($valores['descuento'])) {
@@ -450,9 +459,10 @@ class ServicioMaestros
 
     /**
      * Lo que el admin tiene que saber antes de cargar un cliente: si nadie lo
-     * va a ver. La visibilidad depende de que algun asesor tenga la cartera.
+     * va a ver (la visibilidad depende de que algun asesor tenga la cartera) y
+     * si el archivo nombra la cartera distinto de como esta aqui.
      */
-    private function avisosCliente(array $cambios, ?Cliente $actual, array $contexto): array
+    private function avisosCliente(array $cambios, ?Cliente $actual, array $contexto, array $valores): array
     {
         $avisos = [];
 
@@ -462,12 +472,26 @@ class ServicioMaestros
 
         if (isset($cambios['asesor'])) {
             $texto = $cambios['asesor']['despues'];
-            $cartera = $contexto['carteras'][$texto] ?? null;
+            $numero = AsesorSap::numeroDelTexto($texto);
+            $cartera = $contexto['carteras'][$numero] ?? null;
+            $enArchivo = trim((string) ($valores['asesor'] ?? ''));
 
             if (! $cartera) {
                 $avisos[] = "Cartera nueva \"{$texto}\": ningun asesor la tiene asignada todavia, asi que nadie vera este cliente.";
-            } elseif ($cartera->usuarios_count === 0) {
-                $avisos[] = "Ningun asesor tiene asignada la cartera \"{$texto}\": nadie vera este cliente.";
+            } else {
+                // La carga nunca renombra: un error de digitacion en el archivo
+                // no debe cambiarle el nombre a la cartera de nadie.
+                if ($enArchivo !== $cartera->codigo_texto) {
+                    $avisos[] = "La cartera {$numero} se llama \"{$cartera->codigo_texto}\" aqui y \"{$enArchivo}\" en el archivo: se usa la existente. Para renombrarla, ve a Carteras.";
+                }
+
+                if (! $cartera->activo) {
+                    $avisos[] = "La cartera {$numero} esta inactiva: el cliente queda en ella igual.";
+                }
+
+                if ($cartera->usuarios_count === 0) {
+                    $avisos[] = "Ningun asesor tiene asignada la cartera \"{$texto}\": nadie vera este cliente.";
+                }
             }
         } elseif (! $actual) {
             $avisos[] = 'Sin cartera: ningun asesor vera este cliente hasta asignarle una.';
@@ -485,10 +509,7 @@ class ServicioMaestros
 
             match ($campo) {
                 'canal' => $datos['canal_id'] = Canal::firstOrCreate(['nombre' => $valor], ['activo' => true])->id,
-                'asesor' => $datos['asesor_sap_id'] = AsesorSap::firstOrCreate(
-                    ['codigo_texto' => $valor],
-                    ['nombre' => FormatoMaestros::nombreDelAsesor($valor), 'activo' => true],
-                )->id,
+                'asesor' => $datos['asesor_sap_id'] = AsesorSap::resolverDesdeTexto($valor)->id,
                 'descuento' => $datos['porcentaje_descuento'] = $valor,
                 default => $datos[$campo] = $valor,
             };
