@@ -64,6 +64,7 @@ Route::middleware(['auth', 'usuario.activo'])->group(function () {
         Route::livewire('/administracion/clientes/{cliente}', 'maestros-cliente')->name('maestros-cliente');
         Route::livewire('/administracion/productos', 'maestros-productos')->name('maestros-productos');
         Route::livewire('/administracion/productos/{producto}', 'maestros-producto')->name('maestros-producto');
+        Route::livewire('/administracion/cargar', 'maestros-cargar')->name('maestros-cargar');
     });
 });
 

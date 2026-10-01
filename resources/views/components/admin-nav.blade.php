@@ -12,6 +12,7 @@
         ['ruta' => 'usuarios', 'texto' => 'Usuarios', 'activa' => ['usuarios', 'usuario']],
         ['ruta' => 'maestros-clientes', 'texto' => 'Clientes', 'activa' => ['maestros-clientes', 'maestros-cliente']],
         ['ruta' => 'maestros-productos', 'texto' => 'Productos', 'activa' => ['maestros-productos', 'maestros-producto']],
+        ['ruta' => 'maestros-cargar', 'texto' => 'Cargar archivo', 'activa' => ['maestros-cargar']],
         ['ruta' => 'configuracion', 'texto' => 'Configuración', 'activa' => ['configuracion']],
         ['ruta' => 'plantillas', 'texto' => 'Plantillas SAP', 'activa' => ['plantillas']],
         ['ruta' => 'registros', 'texto' => 'Registros', 'activa' => ['registros']],

@@ -5,8 +5,14 @@ namespace App\Services;
 use App\Models\AsesorSap;
 use App\Models\Canal;
 use App\Models\Cliente;
+use App\Models\Importacion;
 use App\Models\Producto;
+use App\Models\Usuario;
+use App\Support\FormatoMaestros;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -156,6 +162,358 @@ class ServicioMaestros
             'precio_lista' => $precio,
             'activo' => (bool) ($datos['activo'] ?? true),
         ];
+    }
+
+    // ---------- Carga por archivo ----------
+
+    /**
+     * Compara las filas leidas de un archivo contra la base, SIN escribir nada.
+     *
+     * Cada fila sale como NUEVO, CAMBIA (con el antes y el despues de cada
+     * campo), IGUAL o ERROR (con el motivo). Una celda vacia no cuenta como
+     * cambio: en la carga por archivo, vacio significa "no lo toques".
+     *
+     * @param  list<array{fila: int, valores: array<string, mixed>}>  $filas  lo que devuelve LectorMaestros
+     * @return list<array<string, mixed>>
+     */
+    public function analizarCarga(string $tipo, array $filas): array
+    {
+        $esClientes = $this->esCargaDeClientes($tipo);
+        $columna = $esClientes ? 'codigo_sn' : 'codigo';
+
+        $existentes = $this->existentesPorCodigo(
+            $esClientes ? Cliente::query()->with(['canal', 'asesorSap']) : Producto::query(),
+            $columna,
+            array_map(fn ($f) => $f['valores'][$columna] ?? null, $filas),
+        );
+
+        $contexto = $esClientes ? [
+            'canales' => Canal::pluck('nombre')->mapWithKeys(fn ($n) => [mb_strtolower($n) => true])->all(),
+            'carteras' => AsesorSap::withCount('usuarios')->get()->keyBy('codigo_texto'),
+        ] : [];
+
+        $vistos = [];
+
+        return array_map(function (array $fila) use ($esClientes, $columna, $existentes, $contexto, &$vistos) {
+            $valores = array_filter($fila['valores'], fn ($v) => $v !== null);
+            $resultado = [
+                'fila' => (int) $fila['fila'],
+                'id' => null,
+                'codigo' => isset($valores[$columna]) ? (string) $valores[$columna] : null,
+                'titulo' => $valores[$esClientes ? 'nombre' : 'descripcion'] ?? null,
+                'estado' => 'ERROR',
+                'cambios' => [],
+                'motivo' => null,
+                'avisos' => [],
+                'valores' => $valores,
+            ];
+
+            try {
+                $codigo = $this->codigo($resultado['codigo'] ?? '');
+                $clave = mb_strtolower($codigo);
+
+                if (isset($vistos[$clave])) {
+                    throw new RuntimeException("El codigo {$codigo} se repite en el archivo (fila {$vistos[$clave]}).");
+                }
+                $vistos[$clave] = $resultado['fila'];
+
+                $actual = $existentes[$clave] ?? null;
+                [$propuesto, $antes] = $esClientes
+                    ? $this->propuestaCliente($valores, $actual)
+                    : $this->propuestaProducto($valores, $actual);
+            } catch (RuntimeException $e) {
+                $resultado['motivo'] = $e->getMessage();
+
+                return $resultado;
+            }
+
+            $cambios = [];
+            foreach ($propuesto as $campo => $nuevo) {
+                $viejo = $antes[$campo] ?? null;
+                $igual = is_float($nuevo)
+                    ? $viejo !== null && abs((float) $viejo - $nuevo) < 0.005
+                    : $viejo === $nuevo;
+
+                if (! $igual) {
+                    $cambios[$campo] = ['antes' => $viejo, 'despues' => $nuevo];
+                }
+            }
+
+            $resultado['id'] = $actual?->id;
+            $resultado['codigo'] = $actual ? ($actual->{$columna}) : $codigo;
+            $resultado['titulo'] ??= $actual?->{$esClientes ? 'nombre' : 'descripcion'};
+            $resultado['cambios'] = $cambios;
+            $resultado['estado'] = ! $actual ? 'NUEVO' : ($cambios ? 'CAMBIA' : 'IGUAL');
+            $resultado['avisos'] = $esClientes && $resultado['estado'] !== 'IGUAL'
+                ? $this->avisosCliente($cambios, $actual, $contexto)
+                : [];
+
+            return $resultado;
+        }, $filas);
+    }
+
+    /**
+     * Aplica las filas que el admin eligio, en una sola transaccion.
+     *
+     * Antes de escribir se vuelve a analizar cada fila: entre la revision y la
+     * carga pudo cambiar la base. Si la fila ya no es lo que el admin reviso
+     * (por ejemplo, el cliente "nuevo" ya lo creo otra persona), no se carga.
+     *
+     * @param  list<array<string, mixed>>  $revisadas  filas tal como salieron de analizarCarga
+     */
+    public function cargar(string $tipo, array $revisadas, Usuario $usuario, string $archivo): Importacion
+    {
+        $esClientes = $this->esCargaDeClientes($tipo);
+        $resumen = ['creados' => 0, 'actualizados' => 0, 'sin_cambios' => 0, 'errores' => 0];
+        $errores = [];
+
+        $importacion = DB::transaction(function () use ($tipo, $esClientes, $revisadas, $usuario, $archivo, &$resumen, &$errores) {
+            $frescas = collect($this->analizarCarga($tipo, array_map(
+                fn ($f) => ['fila' => $f['fila'], 'valores' => $f['valores']], $revisadas,
+            )))->keyBy('fila');
+
+            foreach ($revisadas as $revisada) {
+                $fresca = $frescas[$revisada['fila']];
+                $motivo = null;
+
+                if ($fresca['estado'] === 'ERROR') {
+                    $motivo = $fresca['motivo'];
+                } elseif ($fresca['estado'] !== ($revisada['estado'] ?? null) || $fresca['cambios'] != ($revisada['cambios'] ?? [])) {
+                    // Comparacion suelta a proposito: al viajar al navegador
+                    // un 64900.0 vuelve como 64900 y no es un cambio real.
+                    $motivo = 'La fila cambio desde la revision. Vuelve a subir el archivo para verla como esta ahora.';
+                } elseif ($fresca['estado'] === 'IGUAL') {
+                    $resumen['sin_cambios']++;
+
+                    continue;
+                } else {
+                    try {
+                        $esClientes ? $this->aplicarCliente($fresca) : $this->aplicarProducto($fresca);
+                        $resumen[$fresca['estado'] === 'NUEVO' ? 'creados' : 'actualizados']++;
+
+                        continue;
+                    } catch (RuntimeException $e) {
+                        $motivo = $e->getMessage();
+                    }
+                }
+
+                $resumen['errores']++;
+                $errores[] = ['fila' => $fresca['fila'], 'codigo' => $fresca['codigo'], 'motivo' => $motivo];
+            }
+
+            return Importacion::create([
+                'usuario_id' => $usuario->id,
+                // PRECIOS y no PRODUCTOS: es el mismo tipo que deja el comando de consola.
+                'tipo' => $esClientes ? 'CLIENTES' : 'PRECIOS',
+                'archivo' => mb_substr($archivo, 0, 255),
+                'filas_leidas' => count($revisadas),
+                'creados' => $resumen['creados'],
+                'actualizados' => $resumen['actualizados'],
+                'sin_cambios' => $resumen['sin_cambios'],
+                'errores' => $resumen['errores'],
+                'detalle_errores' => array_slice($errores, 0, 200),
+                'estado' => 'COMPLETADA',
+            ]);
+        });
+
+        $this->bitacora->registrar('CARGAR_MAESTROS', 'importacion', $importacion->id, [
+            'tipo' => $importacion->tipo,
+            'archivo' => $importacion->archivo,
+        ] + $resumen);
+
+        return $importacion;
+    }
+
+    private function esCargaDeClientes(string $tipo): bool
+    {
+        return match ($tipo) {
+            'clientes' => true,
+            'productos' => false,
+            default => throw new RuntimeException("Tipo de carga desconocido: {$tipo}."),
+        };
+    }
+
+    /**
+     * Trae de una vez los registros que ya existen con esos codigos, indexados
+     * por el codigo en minusculas. Por tandas: SQLite no acepta listas enormes.
+     */
+    private function existentesPorCodigo(Builder $consulta, string $columna, array $codigos): array
+    {
+        $claves = collect($codigos)
+            ->filter(fn ($c) => $c !== null && trim((string) $c) !== '')
+            ->map(fn ($c) => mb_strtolower(trim((string) $c)))
+            ->unique()
+            ->values();
+
+        $existentes = [];
+
+        foreach ($claves->chunk(500) as $tanda) {
+            (clone $consulta)->whereIn(DB::raw("lower({$columna})"), $tanda->all())->get()
+                ->each(function (Model $m) use ($columna, &$existentes) {
+                    $existentes[mb_strtolower($m->{$columna})] = $m;
+                });
+        }
+
+        return $existentes;
+    }
+
+    /** @return array{0: array<string, mixed>, 1: array<string, mixed>} lo propuesto y lo actual, comparables */
+    private function propuestaCliente(array $valores, ?Cliente $actual): array
+    {
+        $propuesto = [];
+
+        foreach (['nombre' => [255, 'El nombre'], 'direccion' => [255, 'La direccion'], 'ciudad' => [120, 'La ciudad']] as $campo => [$maximo, $etiqueta]) {
+            if (isset($valores[$campo])) {
+                $propuesto[$campo] = $this->opcional($valores[$campo], $maximo, $etiqueta);
+            }
+        }
+
+        // Misma normalizacion que el comando de consola: "DISTRIBUCION" y
+        // "distribucion" son el canal "Distribucion", no dos canales.
+        if (isset($valores['canal'])) {
+            $propuesto['canal'] = Str::title(Str::lower(trim((string) $valores['canal'])));
+        }
+
+        // La cartera va tal cual: ese texto exacto es la llave de visibilidad.
+        if (isset($valores['asesor'])) {
+            $propuesto['asesor'] = trim((string) $valores['asesor']);
+        }
+
+        if (isset($valores['descuento'])) {
+            if (! is_float($valores['descuento']) && ! is_int($valores['descuento'])) {
+                throw new RuntimeException("El descuento no es un numero: {$valores['descuento']}.");
+            }
+
+            $propuesto['descuento'] = (float) $valores['descuento'];
+
+            if ($propuesto['descuento'] < 0 || $propuesto['descuento'] > 100) {
+                throw new RuntimeException('El descuento tiene que estar entre 0 y 100.');
+            }
+        }
+
+        if (! $actual && ! isset($propuesto['nombre'])) {
+            throw new RuntimeException('Falta el nombre: es un cliente nuevo.');
+        }
+
+        $antes = $actual ? [
+            'nombre' => $actual->nombre,
+            'direccion' => $actual->direccion,
+            'ciudad' => $actual->ciudad,
+            'canal' => $actual->canal?->nombre,
+            'asesor' => $actual->asesorSap?->codigo_texto,
+            'descuento' => (float) $actual->porcentaje_descuento,
+        ] : [];
+
+        return [$propuesto, $antes];
+    }
+
+    /** @return array{0: array<string, mixed>, 1: array<string, mixed>} */
+    private function propuestaProducto(array $valores, ?Producto $actual): array
+    {
+        $propuesto = [];
+
+        foreach (['descripcion' => [255, 'La descripcion'], 'familia' => [120, 'La familia']] as $campo => [$maximo, $etiqueta]) {
+            if (isset($valores[$campo])) {
+                $propuesto[$campo] = $this->opcional($valores[$campo], $maximo, $etiqueta);
+            }
+        }
+
+        if (isset($valores['precio'])) {
+            if (! is_float($valores['precio']) && ! is_int($valores['precio'])) {
+                throw new RuntimeException("El precio no es un numero: {$valores['precio']}.");
+            }
+
+            $propuesto['precio'] = (float) $valores['precio'];
+
+            if ($propuesto['precio'] < 0) {
+                throw new RuntimeException('El precio no puede ser negativo.');
+            }
+        }
+
+        if (! $actual && ! isset($propuesto['descripcion'])) {
+            throw new RuntimeException('Falta la descripcion: es un producto nuevo.');
+        }
+
+        // Un producto nuevo sin precio entraria a cero y saldria regalado.
+        if (! $actual && ! isset($propuesto['precio'])) {
+            throw new RuntimeException('Falta el precio: es un producto nuevo.');
+        }
+
+        $antes = $actual ? [
+            'descripcion' => $actual->descripcion,
+            'familia' => $actual->familia,
+            'precio' => (float) $actual->precio_lista,
+        ] : [];
+
+        return [$propuesto, $antes];
+    }
+
+    /**
+     * Lo que el admin tiene que saber antes de cargar un cliente: si nadie lo
+     * va a ver. La visibilidad depende de que algun asesor tenga la cartera.
+     */
+    private function avisosCliente(array $cambios, ?Cliente $actual, array $contexto): array
+    {
+        $avisos = [];
+
+        if (isset($cambios['canal']) && ! isset($contexto['canales'][mb_strtolower($cambios['canal']['despues'])])) {
+            $avisos[] = "Canal nuevo: se crea \"{$cambios['canal']['despues']}\".";
+        }
+
+        if (isset($cambios['asesor'])) {
+            $texto = $cambios['asesor']['despues'];
+            $cartera = $contexto['carteras'][$texto] ?? null;
+
+            if (! $cartera) {
+                $avisos[] = "Cartera nueva \"{$texto}\": ningun asesor la tiene asignada todavia, asi que nadie vera este cliente.";
+            } elseif ($cartera->usuarios_count === 0) {
+                $avisos[] = "Ningun asesor tiene asignada la cartera \"{$texto}\": nadie vera este cliente.";
+            }
+        } elseif (! $actual) {
+            $avisos[] = 'Sin cartera: ningun asesor vera este cliente hasta asignarle una.';
+        }
+
+        return $avisos;
+    }
+
+    private function aplicarCliente(array $fila): void
+    {
+        $datos = [];
+
+        foreach ($fila['cambios'] as $campo => $cambio) {
+            $valor = $cambio['despues'];
+
+            match ($campo) {
+                'canal' => $datos['canal_id'] = Canal::firstOrCreate(['nombre' => $valor], ['activo' => true])->id,
+                'asesor' => $datos['asesor_sap_id'] = AsesorSap::firstOrCreate(
+                    ['codigo_texto' => $valor],
+                    ['nombre' => FormatoMaestros::nombreDelAsesor($valor), 'activo' => true],
+                )->id,
+                'descuento' => $datos['porcentaje_descuento'] = $valor,
+                default => $datos[$campo] = $valor,
+            };
+        }
+
+        if ($fila['estado'] === 'NUEVO') {
+            $this->crearCliente(['codigo_sn' => $fila['codigo']] + $datos);
+        } else {
+            $this->actualizarCliente(Cliente::findOrFail($fila['id']), $datos);
+        }
+    }
+
+    private function aplicarProducto(array $fila): void
+    {
+        $datos = [];
+
+        foreach ($fila['cambios'] as $campo => $cambio) {
+            $datos[$campo === 'precio' ? 'precio_lista' : $campo] = $cambio['despues'];
+        }
+
+        if ($fila['estado'] === 'NUEVO') {
+            $this->crearProducto(['codigo' => $fila['codigo']] + $datos);
+        } else {
+            $this->actualizarProducto(Producto::findOrFail($fila['id']), $datos);
+        }
     }
 
     // ---------- Reglas comunes ----------
