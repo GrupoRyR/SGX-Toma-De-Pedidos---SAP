@@ -94,6 +94,14 @@ Si el resumen se ve bien, repetir sin `--simular`. Igual con los precios:
 php artisan pedidos:importar-precios storage/importaciones/LISTA_PRECIOS.csv --simular
 ```
 
+Eso es para la carga inicial. En el día a día los maestros se mantienen desde
+la web: **Administración → Clientes / Productos** para crear o editar uno, y
+**Administración → Cargar archivo** para un Excel o CSV. La carga primero
+muestra qué es nuevo, qué cambia (antes → después), qué es igual y qué tiene
+error; solo se guarda lo que se seleccione. Una celda vacía no borra el dato
+que ya existe (el comando de consola sí lo hace). Lee `.xlsx` con
+`openspout/openspout`, que necesita las extensiones `zip` y `xmlreader`.
+
 ### 5. Enlazar las carteras
 
 Los asesores SAP **no se siembran a mano**: se crean solos al importar clientes, con el texto exacto que trae SAP. Por eso este paso va al final:

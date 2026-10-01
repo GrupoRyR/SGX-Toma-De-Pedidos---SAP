@@ -15,7 +15,7 @@ GoDaddy, cPanel ni de la base de datos.
 | Qué | Dónde | Por qué importa |
 |---|---|---|
 | **PHP 8.3 o superior** | cPanel → MultiPHP Manager | Laravel 13 lo exige. Con 8.2 la aplicación no arranca. |
-| Extensiones `pdo_mysql`, `mbstring`, `openssl`, `curl`, `zip`, `gd`, `bcmath`, `fileinfo` | cPanel → Select PHP Version → Extensions | Sin `curl` no hay ingreso con Microsoft. Sin `gd` no se generan los íconos. |
+| Extensiones `pdo_mysql`, `mbstring`, `openssl`, `curl`, `zip`, `xmlreader`, `dom`, `gd`, `bcmath`, `fileinfo` | cPanel → Select PHP Version → Extensions | Sin `curl` no hay ingreso con Microsoft. Sin `gd` no se generan los íconos. Sin `zip` y `xmlreader` no se leen los Excel de la carga de maestros. |
 | **SSH habilitado** | cPanel → SSH Access | Sin SSH, composer y las migraciones se vuelven muy incómodas. |
 | **Certificado SSL** en el subdominio | cPanel → SSL/TLS Status | Entra ID no acepta `http://` en producción, y el service worker necesita HTTPS. |
 
@@ -200,6 +200,11 @@ php artisan pedidos:revisar-datos
 normal que reporte la cartera `85 LILIAM HAIDEIDI HERRERA RAMIREZ`, que tiene
 un solo cliente y no está asignada a nadie.
 
+Esto es solo para la carga inicial. Después, los clientes y productos nuevos se
+crean desde **Administración → Clientes / Productos** (uno por uno) o
+**Administración → Cargar archivo** (Excel o CSV, con vista previa y selección
+de filas). Nada de eso necesita terminal.
+
 ---
 
 ## 8. La tarea programada
@@ -267,6 +272,11 @@ php artisan migrate --force
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 php artisan up
 ```
+
+**Si la actualización trae paquetes nuevos de Composer** (`composer.lock`
+cambió, como al agregar `openspout/openspout` para leer Excel), hay que subir
+`vendor/` completo, no solo los archivos de la aplicación: el autoload de
+Composer cambia junto con el paquete.
 
 El caché del service worker se invalida solo: la página lo registra con el hash
 del build, así que un despliegue nuevo hace que los celulares se actualicen sin
