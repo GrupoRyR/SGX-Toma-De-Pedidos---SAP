@@ -1,5 +1,7 @@
 {{--
-    Correo de rechazo. Es la única notificación en alcance.
+    Correo de devolución al asesor. Es la única notificación en alcance, y sirve
+    igual para un rechazo que para un pedido aprobado que se reversó a
+    borrador: en los dos casos el asesor tiene que corregir y volver a enviar.
 
     Se escribe en HTML plano y con estilos en línea: los clientes de correo no
     respetan hojas de estilo, y Outlook menos. Nada de imágenes remotas, que

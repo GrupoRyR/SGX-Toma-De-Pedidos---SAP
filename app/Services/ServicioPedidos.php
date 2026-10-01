@@ -399,19 +399,109 @@ class ServicioPedidos
          * mientras tanto, y un fallo de correo desharia un rechazo que ya se
          * decidio.
          */
-        $this->avisarRechazo($pedido, $usuario);
+        $this->avisarDevolucion($pedido, $usuario, 'RECHAZO');
 
         return $pedido;
     }
 
     /**
-     * Le avisa al asesor que le devolvieron el pedido.
+     * Devuelve un pedido APROBADO o LIBERADO a BORRADOR para que el asesor lo
+     * corrija y lo vuelva a enviar.
      *
-     * Es la unica notificacion que quedo en alcance. Nunca lanza: el rechazo ya
-     * ocurrio, y que el correo falle no puede deshacerlo. El intento queda en
-     * la tabla de notificaciones.
+     * Existe porque despues de aprobado solo se podia quitar lineas. Agregar o
+     * cambiar cantidades cambia lo que se aprobo, asi que tiene que volver a
+     * pasar por aprobacion completa.
+     *
+     * Se limpian la aprobacion, el visto bueno, la copia congelada y la marca
+     * de plantillas: el pedido vuelve a empezar. Lo que se habia aprobado no se
+     * pierde, queda en el detalle de la bitacora.
+     *
+     * Si las plantillas ya se descargaron, ese pedido puede estar en un archivo
+     * de DTW listo para importar. Reversarlo sin saberlo dejaria la web
+     * diciendo borrador y SAP con el pedido creado, por eso exige que quien
+     * reversa confirme que no se importo.
      */
-    private function avisarRechazo(Pedido $pedido, Usuario $quienRechazo): void
+    public function reversarABorrador(Pedido $pedido, Usuario $usuario, string $motivo, bool $confirmaPlantillas = false): Pedido
+    {
+        if (! $usuario->puedeAprobar()) {
+            throw new RuntimeException('No tienes permiso para reversar pedidos aprobados.');
+        }
+
+        $motivo = trim($motivo);
+
+        if ($motivo === '') {
+            throw new RuntimeException('Reversar necesita un motivo: el asesor tiene que saber que corregir.');
+        }
+
+        $pedido = DB::transaction(function () use ($pedido, $usuario, $motivo, $confirmaPlantillas) {
+            $actual = Pedido::whereKey($pedido->getKey())->lockForUpdate()->first();
+
+            if (! $actual
+                || ! in_array($actual->estado, [EstadoPedido::APROBADO, EstadoPedido::LIBERADO], true)
+                || $actual->importado_sap) {
+                throw new RuntimeException('Solo se reversa un pedido aprobado que todavia no entro a SAP.');
+            }
+
+            if ($actual->bloqueadoPorOtro($usuario)) {
+                throw new RuntimeException('Alguien esta editando este pedido en este momento.');
+            }
+
+            if ($actual->plantillas_descargadas_en !== null && ! $confirmaPlantillas) {
+                throw new RuntimeException('Las plantillas de este pedido ya se descargaron. Confirma que no se importo en DTW antes de reversarlo.');
+            }
+
+            $detalle = [
+                'motivo' => $motivo,
+                'estado_anterior' => $actual->estado->value,
+                'aprobado_por' => $actual->aprobado_por,
+                'fecha_aprobacion' => $actual->fecha_aprobacion?->toIso8601String(),
+                'liberado_por' => $actual->liberado_por,
+                'fecha_liberacion' => $actual->fecha_liberacion?->toIso8601String(),
+                'plantillas_descargadas_en' => $actual->plantillas_descargadas_en?->toIso8601String(),
+                'version_al_descargar' => $actual->version_al_descargar,
+                // La evidencia de lo que se habia aprobado. En el pedido se
+                // borra porque la proxima aprobacion toma una copia nueva.
+                'snapshot_aprobado' => $actual->snapshot_aprobado,
+            ];
+
+            $actual->forceFill([
+                'estado' => EstadoPedido::BORRADOR,
+                'motivo_rechazo' => $motivo,
+                'aprobado_por' => null,
+                'fecha_aprobacion' => null,
+                'liberado_por' => null,
+                'fecha_liberacion' => null,
+                'snapshot_aprobado' => null,
+                'plantillas_descargadas_en' => null,
+                'version_al_descargar' => null,
+                // El bloqueo de quien reversa no le sirve al asesor: lo deja
+                // libre para que lo tome al abrir el pedido.
+                'bloqueado_por' => null,
+                'bloqueado_hasta' => null,
+                // Cualquier pantalla abierta con la version anterior queda vieja.
+                'version' => $actual->version + 1,
+            ])->save();
+
+            $this->bitacora->registrar('REVERSAR_APROBADO', 'pedido', $actual->id, $detalle);
+
+            return $actual;
+        });
+
+        // Fuera de la transaccion, por la misma razon que en el rechazo.
+        $this->avisarDevolucion($pedido, $usuario, 'REVERSAR');
+
+        return $pedido;
+    }
+
+    /**
+     * Le avisa al asesor que le devolvieron el pedido, por rechazo o porque se
+     * reverso una aprobacion. Para el asesor es lo mismo: tiene que corregir.
+     *
+     * Nunca lanza: la devolucion ya ocurrio, y que el correo falle no puede
+     * deshacerla. El intento queda en la tabla de notificaciones con el evento,
+     * para distinguir un caso del otro.
+     */
+    private function avisarDevolucion(Pedido $pedido, Usuario $quienRechazo, string $evento): void
     {
         $asesor = $pedido->creador;
 
@@ -432,7 +522,7 @@ class ServicioPedidos
                 'quienRechazo' => $quienRechazo->nombre,
                 'enlace' => route('pedido', $pedido),
             ])->render(),
-            evento: 'RECHAZO',
+            evento: $evento,
             pedidoId: $pedido->id,
         );
     }

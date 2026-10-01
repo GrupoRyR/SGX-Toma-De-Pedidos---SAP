@@ -124,6 +124,30 @@ class PedidoPolicy
         return $this->ver($usuario, $pedido) && ! $pedido->bloqueadoPorOtro($usuario);
     }
 
+    /**
+     * Devolver un pedido aprobado a BORRADOR para que el asesor lo corrija.
+     *
+     * Es el camino cuando hay que agregar o cambiar algo despues de aprobado:
+     * eso cambia lo que se aprobo, asi que tiene que volver a pasar por
+     * aprobacion. Lo hace quien podria aprobar ese pedido.
+     *
+     * Sin la regla de autoaprobacion: devolver no aprueba nada, solo quita
+     * una aprobacion. Y nunca si ya entro a SAP, por la misma razon que
+     * ajustar: a partir de ahi la verdad esta alla.
+     */
+    public function reversar(Usuario $usuario, Pedido $pedido): bool
+    {
+        if ($pedido->importado_sap || ! $usuario->puedeAprobar()) {
+            return false;
+        }
+
+        if (! in_array($pedido->estado, [EstadoPedido::APROBADO, EstadoPedido::LIBERADO], true)) {
+            return false;
+        }
+
+        return $this->ver($usuario, $pedido) && ! $pedido->bloqueadoPorOtro($usuario);
+    }
+
     /** Deshacer el visto bueno, mientras el robot no lo haya tomado. */
     public function devolver(Usuario $usuario, Pedido $pedido): bool
     {
