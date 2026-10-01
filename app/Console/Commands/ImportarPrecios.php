@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Importacion;
 use App\Models\Producto;
+use App\Support\FormatoMaestros;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -24,14 +25,6 @@ class ImportarPrecios extends Command
 
     protected $description = 'Importa o actualiza la lista de precios desde el CSV de LISTA_PRECIOS';
 
-    private array $columnas = [
-        'codigo' => ['codigo', 'itemcode', 'codigoproducto', 'referencia'],
-        // En el export de SharePoint la descripcion viene en la columna Title.
-        'descripcion' => ['descripcion', 'titulo', 'itemname', 'nombre', 'producto'],
-        'familia' => ['familia', 'linea', 'grupo', 'categoria'],
-        'precio' => ['preciolist', 'preciolista', 'precio', 'precioventa', 'price', 'valor'],
-    ];
-
     public function handle(): int
     {
         $ruta = $this->argument('archivo');
@@ -45,7 +38,7 @@ class ImportarPrecios extends Command
         $simular = (bool) $this->option('simular');
         $separador = $this->option('separador');
 
-        $manejador = $this->abrir($ruta);
+        $manejador = FormatoMaestros::abrirCsv($ruta);
         $encabezado = fgetcsv($manejador, 0, $separador);
 
         if (! $encabezado) {
@@ -54,7 +47,7 @@ class ImportarPrecios extends Command
             return self::FAILURE;
         }
 
-        $indices = $this->mapearColumnas($encabezado);
+        $indices = FormatoMaestros::mapearColumnas($encabezado, FormatoMaestros::ALIAS_PRODUCTOS);
 
         if (! isset($indices['codigo'], $indices['descripcion'], $indices['precio'])) {
             $this->error('Faltan columnas obligatorias: codigo, descripcion y precio.');
@@ -69,14 +62,14 @@ class ImportarPrecios extends Command
 
         $procesar = function () use ($manejador, $separador, $indices, &$resumen, &$errores, &$cambiosDePrecio) {
             while (($fila = fgetcsv($manejador, 0, $separador)) !== false) {
-                if ($this->filaVacia($fila)) {
+                if (FormatoMaestros::filaVacia($fila)) {
                     continue;
                 }
 
                 $resumen['leidas']++;
                 $codigo = trim((string) ($fila[$indices['codigo']] ?? ''));
                 $descripcion = trim((string) ($fila[$indices['descripcion']] ?? ''));
-                $precio = $this->numero((string) ($fila[$indices['precio']] ?? ''));
+                $precio = FormatoMaestros::numero((string) ($fila[$indices['precio']] ?? ''));
 
                 if ($codigo === '' || $descripcion === '') {
                     $resumen['errores']++;
@@ -171,116 +164,5 @@ class ImportarPrecios extends Command
         ]);
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Abre el CSV saltando el BOM si lo trae.
-     *
-     * Hay que quitarlo ANTES de leer, no despues: con el BOM pegado delante,
-     * fgetcsv no reconoce la comilla de apertura y devuelve la primera columna
-     * con las comillas incrustadas ("CODIGO" en vez de CODIGO).
-     *
-     * @return resource
-     */
-    private function abrir(string $ruta)
-    {
-        $manejador = fopen($ruta, 'r');
-
-        if (fread($manejador, 3) !== "\xEF\xBB\xBF") {
-            rewind($manejador);
-        }
-
-        return $manejador;
-    }
-
-    /**
-     * Normaliza un titulo de columna para poder compararlo.
-     *
-     * Quita acentos primero: sin eso, un encabezado como "CODIGO" con tilde
-     * pierde la letra entera al filtrar por [^a-z0-9] y queda "cdigo", que no
-     * coincide con ningun alias.
-     */
-    private function clave(string $titulo): string
-    {
-        $sinAcentos = strtr(mb_strtolower(trim($titulo), 'UTF-8'), [
-            "\u{E1}" => 'a', "\u{E9}" => 'e', "\u{ED}" => 'i', "\u{F3}" => 'o', "\u{FA}" => 'u',
-            "\u{E0}" => 'a', "\u{E8}" => 'e', "\u{EC}" => 'i', "\u{F2}" => 'o', "\u{F9}" => 'u',
-            "\u{E4}" => 'a', "\u{EB}" => 'e', "\u{EF}" => 'i', "\u{F6}" => 'o', "\u{FC}" => 'u',
-            "\u{F1}" => 'n', "\u{E7}" => 'c',
-        ]);
-
-        return preg_replace('/[^a-z0-9]/', '', $sinAcentos);
-    }
-
-    /** El export de SharePoint suele cerrar con una fila de comas sueltas. */
-    private function filaVacia(array $fila): bool
-    {
-        foreach ($fila as $celda) {
-            if (trim((string) $celda) !== '') {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function mapearColumnas(array $encabezado): array
-    {
-        $normalizado = [];
-        foreach ($encabezado as $i => $titulo) {
-            $normalizado[$this->clave((string) $titulo)] = $i;
-        }
-
-        $indices = [];
-        foreach ($this->columnas as $campo => $alias) {
-            foreach ($alias as $nombre) {
-                if (isset($normalizado[$nombre])) {
-                    $indices[$campo] = $normalizado[$nombre];
-                    break;
-                }
-            }
-        }
-
-        return $indices;
-    }
-
-    /**
-     * Convierte el texto de un precio a float respetando el formato del export.
-     *
-     * OJO: en LISTA_PRECIOS "64,900" son sesenta y cuatro mil novecientos pesos,
-     * NO sesenta y cuatro con nueve. La coma separa miles. Tratarla como decimal
-     * dividiria todos los precios por mil y el pedido saldria regalado.
-     *
-     * La regla: el separador decimal es el ultimo simbolo que aparezca, y solo
-     * si le siguen una o dos cifras. Con tres cifras detras, es separador de
-     * miles.
-     */
-    private function numero(string $valor): float
-    {
-        $limpio = preg_replace('/[^0-9,.\-]/', '', $valor);
-
-        if ($limpio === '' || $limpio === null) {
-            return 0.0;
-        }
-
-        $posComa = strrpos($limpio, ',');
-        $posPunto = strrpos($limpio, '.');
-        $ultimo = max($posComa === false ? -1 : $posComa, $posPunto === false ? -1 : $posPunto);
-
-        $decimal = false;
-        if ($ultimo >= 0) {
-            $cifrasDetras = strlen($limpio) - $ultimo - 1;
-            if ($cifrasDetras >= 1 && $cifrasDetras <= 2) {
-                $decimal = $ultimo;
-            }
-        }
-
-        if ($decimal === false) {
-            return (float) str_replace([',', '.'], '', $limpio);
-        }
-
-        $entero = str_replace([',', '.'], '', substr($limpio, 0, $decimal));
-
-        return (float) (($entero === '' ? '0' : $entero).'.'.substr($limpio, $decimal + 1));
     }
 }
