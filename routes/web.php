@@ -59,11 +59,12 @@ Route::middleware(['auth', 'usuario.activo'])->group(function () {
         // Carga manual a SAP con DTW, mientras no exista el robot puente.
         Route::livewire('/administracion/plantillas', 'plantillas')->name('plantillas');
 
-        // Maestros: clientes y productos, uno por uno o por archivo.
+        // Maestros: clientes, productos y carteras, uno por uno o por archivo.
         Route::livewire('/administracion/clientes', 'maestros-clientes')->name('maestros-clientes');
         Route::livewire('/administracion/clientes/{cliente}', 'maestros-cliente')->name('maestros-cliente');
         Route::livewire('/administracion/productos', 'maestros-productos')->name('maestros-productos');
         Route::livewire('/administracion/productos/{producto}', 'maestros-producto')->name('maestros-producto');
+        Route::livewire('/administracion/carteras', 'maestros-carteras')->name('maestros-carteras');
         Route::livewire('/administracion/cargar', 'maestros-cargar')->name('maestros-cargar');
     });
 });
