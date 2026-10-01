@@ -2,14 +2,19 @@
     Sub-navegacion de administracion.
 
     Va dentro de la seccion en vez de sumar pestanas al encabezado: el asesor,
-    que es casi todo el mundo, no tiene por que ver estas tres.
+    que es casi todo el mundo, no tiene por que ver estas pestanas.
+
+    'activa' son los nombres de ruta que encienden la pestana: la ficha de un
+    cliente sigue siendo la pestana Clientes.
 --}}
 @php
     $partes = [
-        ['ruta' => 'usuarios', 'texto' => 'Usuarios'],
-        ['ruta' => 'configuracion', 'texto' => 'Configuración'],
-        ['ruta' => 'plantillas', 'texto' => 'Plantillas SAP'],
-        ['ruta' => 'registros', 'texto' => 'Registros'],
+        ['ruta' => 'usuarios', 'texto' => 'Usuarios', 'activa' => ['usuarios', 'usuario']],
+        ['ruta' => 'maestros-clientes', 'texto' => 'Clientes', 'activa' => ['maestros-clientes', 'maestros-cliente']],
+        ['ruta' => 'maestros-productos', 'texto' => 'Productos', 'activa' => ['maestros-productos', 'maestros-producto']],
+        ['ruta' => 'configuracion', 'texto' => 'Configuración', 'activa' => ['configuracion']],
+        ['ruta' => 'plantillas', 'texto' => 'Plantillas SAP', 'activa' => ['plantillas']],
+        ['ruta' => 'registros', 'texto' => 'Registros', 'activa' => ['registros']],
     ];
 @endphp
 
@@ -18,8 +23,8 @@
         <a href="{{ route($parte['ruta']) }}" wire:navigate
             @class([
                 'shrink-0 -mb-px border-b-2 px-3 pb-2.5 text-sm font-medium',
-                'border-naranja text-grafito' => request()->routeIs($parte['ruta']),
-                'border-transparent text-niquel hover:text-grafito' => ! request()->routeIs($parte['ruta']),
+                'border-naranja text-grafito' => request()->routeIs(...$parte['activa']),
+                'border-transparent text-niquel hover:text-grafito' => ! request()->routeIs(...$parte['activa']),
             ])
         >{{ $parte['texto'] }}</a>
     @endforeach
