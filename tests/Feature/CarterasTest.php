@@ -315,4 +315,62 @@ class CarterasTest extends TestCase
         $this->actingAs($this->admin())->get(route('maestros-productos'))
             ->assertSee(route('maestros-carteras'), false);
     }
+
+    // ---------- Listas para asignar: solo activas ----------
+
+    /** @return array{0: AsesorSap, 1: AsesorSap, 2: AsesorSap} activa 14, inactiva 15, inactiva 16 */
+    private function carterasMezcladas(): array
+    {
+        return [
+            AsesorSap::create(['codigo_texto' => '14 MONICA RIVERA AREVALO']),
+            AsesorSap::create(['codigo_texto' => '15 PAOLA ANDREA VARGAS MARIN', 'activo' => false]),
+            AsesorSap::create(['codigo_texto' => '16 CAROLINA RAMIREZ', 'activo' => false]),
+        ];
+    }
+
+    public function test_el_cliente_nuevo_solo_ofrece_carteras_activas(): void
+    {
+        $this->carterasMezcladas();
+
+        Livewire::actingAs($this->admin())->test('maestros-clientes')
+            ->set('agregando', true)
+            ->assertSee('14 MONICA RIVERA AREVALO')
+            ->assertDontSee('15 PAOLA ANDREA VARGAS MARIN')
+            ->assertDontSee('16 CAROLINA RAMIREZ');
+    }
+
+    public function test_la_ficha_del_cliente_conserva_su_cartera_inactiva(): void
+    {
+        [, $inactiva] = $this->carterasMezcladas();
+        $cliente = Cliente::create(['codigo_sn' => 'CN0507', 'nombre' => 'RIVERA TUTA', 'asesor_sap_id' => $inactiva->id]);
+
+        Livewire::actingAs($this->admin())->test('maestros-cliente', ['cliente' => $cliente])
+            ->assertSee('14 MONICA RIVERA AREVALO')
+            ->assertSee('15 PAOLA ANDREA VARGAS MARIN (inactiva)')
+            ->assertDontSee('16 CAROLINA RAMIREZ')
+            ->set('datos.ciudad', 'TUNJA')
+            ->call('guardar')
+            ->assertSet('error', '');
+
+        // Guardar otro dato no le quita la cartera que ya tenia.
+        $this->assertSame($inactiva->id, $cliente->refresh()->asesor_sap_id);
+        $this->assertSame('TUNJA', $cliente->ciudad);
+    }
+
+    public function test_asignar_carteras_a_un_asesor_solo_ofrece_activas_y_conserva_las_que_ya_tiene(): void
+    {
+        [$activa, $inactiva] = $this->carterasMezcladas();
+        $asesor = $this->usuario('paola.vargas@segurex.com', 'ASESOR');
+        $asesor->asesores()->attach($inactiva->id);
+        $ti = $this->usuario('leonardo.herrera@segurex.com', 'TI');
+
+        Livewire::actingAs($ti)->test('usuario', ['usuario' => $asesor])
+            ->assertSee('14 MONICA RIVERA AREVALO')
+            ->assertSee('15 PAOLA ANDREA VARGAS MARIN (inactiva)')
+            ->assertDontSee('16 CAROLINA RAMIREZ')
+            ->set('carteras', [(string) $inactiva->id, (string) $activa->id])
+            ->call('guardarCarteras');
+
+        $this->assertEqualsCanonicalizing([$activa->id, $inactiva->id], $asesor->fresh()->idsDeAsesores());
+    }
 }

@@ -83,7 +83,11 @@ new class extends Component
     {
         return [
             'canales' => Canal::orderBy('nombre')->get(),
-            'carteras' => AsesorSap::withCount('usuarios')->orderBy('codigo_texto')->get(),
+            // Solo activas para asignar, mas la que ya tiene aunque este
+            // inactiva: si no estuviera en la lista, guardar se la quitaria.
+            'carteras' => AsesorSap::withCount('usuarios')
+                ->where(fn ($q) => $q->where('activo', true)->orWhere('id', $this->cliente->asesor_sap_id))
+                ->orderBy('numero')->get(),
             'pedidos' => $this->cliente->pedidos()->count(),
         ];
     }
@@ -172,7 +176,7 @@ new class extends Component
                         class="w-full rounded-lg border border-acero-hondo bg-white px-3 py-2.5 focus:border-naranja focus:outline-none">
                     <option value="">Sin cartera</option>
                     @foreach ($carteras as $cartera)
-                        <option value="{{ $cartera->id }}">{{ $cartera->codigo_texto }}</option>
+                        <option value="{{ $cartera->id }}">{{ $cartera->codigo_texto }}{{ $cartera->activo ? '' : ' (inactiva)' }}</option>
                     @endforeach
                 </select>
                 <span class="mt-1 block text-xs text-niquel">Lo ve el asesor que tenga asignada esta cartera.</span>

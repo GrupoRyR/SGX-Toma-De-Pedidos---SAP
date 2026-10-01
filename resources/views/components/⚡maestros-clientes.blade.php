@@ -93,7 +93,8 @@ new class extends Component
         return [
             'clientes' => $consulta->orderBy('nombre')->paginate(30),
             'canales' => Canal::orderBy('nombre')->get(),
-            'carteras' => AsesorSap::orderBy('codigo_texto')->get(),
+            // Una cartera inactiva no se ofrece para clientes nuevos.
+            'carteras' => AsesorSap::where('activo', true)->orderBy('numero')->get(),
             'inactivos' => Cliente::where('activo', false)->count(),
         ];
     }

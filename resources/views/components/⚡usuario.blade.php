@@ -138,7 +138,11 @@ new class extends Component
             'editable' => Gate::allows('editar', $this->usuario),
             'puedeRepartirLiberar' => Gate::allows('otorgarLiberar', $this->usuario),
             'roles' => Rol::cases(),
-            'todasLasCarteras' => AsesorSap::withCount('clientes')->orderBy('codigo_texto')->get(),
+            // Solo activas para asignar, mas las que ya tiene aunque esten
+            // inactivas: si no aparecieran marcadas, guardar se las quitaria.
+            'todasLasCarteras' => AsesorSap::withCount('clientes')
+                ->where(fn ($q) => $q->where('activo', true)->orWhereIn('id', $this->usuario->idsDeAsesores()))
+                ->orderBy('numero')->get(),
             'todosLosCanales' => Canal::withCount('clientes')->orderBy('nombre')->get(),
             'permisoLiberar' => $this->usuario->permisos()->where('permiso', 'LIBERAR_SAP')->first(),
             'cuantosClientes' => $this->usuario->clientesAsignados()->count(),
@@ -285,7 +289,7 @@ new class extends Component
                     <label class="flex items-start gap-2.5 py-1.5 text-sm">
                         <input type="checkbox" wire:model="carteras" value="{{ $cartera->id }}" @disabled(! $editable)
                                class="mt-0.5 size-4 shrink-0 rounded border-acero-hondo text-naranja focus:ring-naranja">
-                        <span class="min-w-0 flex-1">{{ $cartera->codigo_texto }}</span>
+                        <span class="min-w-0 flex-1">{{ $cartera->codigo_texto }}{{ $cartera->activo ? '' : ' (inactiva)' }}</span>
                         <span class="cifras shrink-0 text-niquel">{{ $cartera->clientes_count }}</span>
                     </label>
                 @endforeach
