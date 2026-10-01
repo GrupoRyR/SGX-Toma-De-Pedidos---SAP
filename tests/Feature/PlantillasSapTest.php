@@ -425,6 +425,63 @@ class PlantillasSapTest extends TestCase
             ->assertSee('Corrige el precio a mano en SAP');
     }
 
+    // ---------- Revisar el pedido contra lo que quedo en SAP ----------
+
+    public function test_el_detalle_esta_cerrado_hasta_que_se_pide(): void
+    {
+        $this->pedidoLiberado(['orden_compra' => 'OC-7781']);
+
+        Livewire::actingAs($this->cesar)
+            ->test('plantillas')
+            ->assertDontSee('OC-7781');
+    }
+
+    public function test_revisar_muestra_lo_que_debe_quedar_en_sap(): void
+    {
+        /*
+         * Antes de marcar como importado, el admin de ventas abre el documento
+         * en SAP y lo compara. La pantalla tiene que mostrarle los mismos datos
+         * que lleva la plantilla, sin ir a buscar el pedido a otra parte.
+         */
+        $pedido = $this->pedidoLiberado(
+            ['orden_compra' => 'OC-7781', 'observaciones' => 'Entregar en bodega 3'],
+            ['codigo' => 'PTS09040KC', 'cantidad' => 4, 'atp' => 10],
+        );
+
+        Livewire::actingAs($this->cesar)
+            ->test('plantillas')
+            ->call('alternarRevision', $pedido->id)
+            ->assertSee('CN0017')
+            ->assertSee('OC-7781')
+            ->assertSee('Entregar en bodega 3')
+            ->assertSee('PTS09040KC')
+            ->assertSee('SEGUREX A-80PD CERRADURA ENTRADA SATURNO')
+            ->assertSee('10 %')
+            ->call('alternarRevision', $pedido->id)
+            ->assertDontSee('OC-7781');
+    }
+
+    public function test_revisar_marca_la_linea_con_precio_manual(): void
+    {
+        $pedido = $this->pedidoLiberado(linea: ['precioManual' => 38000]);
+
+        Livewire::actingAs($this->cesar)
+            ->test('plantillas')
+            ->call('alternarRevision', $pedido->id)
+            ->assertSee('38.000')
+            ->assertSee('Corregir en SAP');
+    }
+
+    public function test_revisar_no_cambia_la_seleccion(): void
+    {
+        $pedido = $this->pedidoLiberado();
+
+        Livewire::actingAs($this->cesar)
+            ->test('plantillas')
+            ->call('alternarRevision', $pedido->id)
+            ->assertSet('elegidos', []);
+    }
+
     // ---------- Ajustar un pedido ya aprobado ----------
 
     public function test_el_gerente_quita_una_linea_de_un_pedido_aprobado(): void

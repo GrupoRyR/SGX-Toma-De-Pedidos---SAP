@@ -27,6 +27,16 @@ new class extends Component
 
     public bool $confirmando = false;
 
+    /**
+     * Pedidos con el detalle abierto.
+     *
+     * Antes de marcar como importado, quien carga abre el documento en SAP y lo
+     * compara contra el pedido. El detalle muestra justo lo que lleva la
+     * plantilla, para que esa comparacion se haga aqui y no buscando el pedido
+     * en otra pantalla. Va aparte de $elegidos: revisar no es elegir.
+     */
+    public array $revisando = [];
+
     public function mount(): void
     {
         Gate::authorize('administrar', Usuario::class);
@@ -38,6 +48,13 @@ new class extends Component
         $todos = $plantillas->pendientes()->pluck('id')->map('strval')->all();
 
         $this->elegidos = count($this->elegidos) === count($todos) ? [] : $todos;
+    }
+
+    public function alternarRevision(int $id): void
+    {
+        $this->revisando = in_array($id, $this->revisando, true)
+            ? array_values(array_diff($this->revisando, [$id]))
+            : [...$this->revisando, $id];
     }
 
     public function descargar(PlantillasSap $plantillas)
@@ -148,7 +165,8 @@ new class extends Component
 
         <div class="overflow-hidden rounded-lg bg-white">
             @foreach ($pendientes as $pedido)
-                <label class="flex items-start gap-3 border-b border-acero px-4 py-3.5 last:border-b-0 hover:bg-acero/60">
+                <div wire:key="pedido-{{ $pedido->id }}" class="border-b border-acero last:border-b-0">
+                <label class="flex items-start gap-3 px-4 pt-3.5 pb-1 hover:bg-acero/60">
                     <input type="checkbox" wire:model.live="elegidos" value="{{ $pedido->id }}"
                            class="mt-1 size-4 shrink-0 rounded border-acero-hondo text-naranja focus:ring-naranja">
 
@@ -184,6 +202,94 @@ new class extends Component
 
                     <span class="cifras shrink-0 font-medium">$ {{ number_format($pedido->total, 0, ',', '.') }}</span>
                 </label>
+
+                {{-- Fuera del label: revisar no puede marcar ni desmarcar el pedido. --}}
+                <div class="px-4 pb-3 pl-11">
+                    <button type="button" wire:click="alternarRevision({{ $pedido->id }})"
+                            class="text-sm font-medium text-grafito underline-offset-2 hover:text-naranja hover:underline">
+                        {{ in_array($pedido->id, $revisando, true) ? 'Cerrar revisión' : 'Revisar contra SAP' }}
+                    </button>
+                </div>
+
+                @if (in_array($pedido->id, $revisando, true))
+                    {{-- Los mismos datos que lleva la plantilla, con el nombre del
+                         campo de SAP al lado, para compararlos uno a uno con el
+                         documento ya creado. --}}
+                    <div class="mx-4 mb-4 rounded-lg border border-acero bg-acero/30 p-4 text-sm sm:ml-11">
+                        <dl class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                            <div>
+                                <dt class="text-xs text-niquel">Cliente <span class="font-mono">CardCode</span></dt>
+                                <dd class="cifras font-medium">{{ $pedido->codigo_cliente }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-niquel">Id del pedido <span class="font-mono">U_SGX_IdPedidoApp</span></dt>
+                                <dd class="cifras font-medium">{{ $pedido->id }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-niquel">Orden de compra <span class="font-mono">NumAtCard</span></dt>
+                                <dd class="cifras">{{ $pedido->orden_compra ?: '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-niquel">Fecha de entrega <span class="font-mono">DocDueDate</span></dt>
+                                <dd class="cifras">{{ $pedido->fecha_facturacion?->format('d/m/Y') ?? '—' }}</dd>
+                            </div>
+                            <div class="sm:col-span-2">
+                                <dt class="text-xs text-niquel">Comentarios <span class="font-mono">Comments</span></dt>
+                                <dd class="break-words">{{ $pedido->observaciones ?: '—' }}</dd>
+                            </div>
+                            @if ($pedido->direccion_2)
+                                <div class="sm:col-span-2">
+                                    <dt class="text-xs text-niquel">Dirección de entrega <span class="font-mono">ShipToStreet / ShipToCity</span></dt>
+                                    <dd>{{ mb_strtoupper($pedido->direccion_2) }} · {{ mb_strtoupper((string) $pedido->ciudad_2) }}</dd>
+                                </div>
+                            @endif
+                        </dl>
+
+                        {{-- Una fila por producto, en el orden de la plantilla
+                             (LineNum 0..n-1). En el celular se desplaza
+                             de lado en vez de partir la fila en dos. --}}
+                        <div class="mt-4 overflow-x-auto">
+                            <table class="w-full min-w-[36rem] text-left">
+                                <thead>
+                                    <tr class="border-b border-acero-hondo/40 text-xs whitespace-nowrap text-niquel">
+                                        <th class="py-1.5 pr-3 font-normal">#</th>
+                                        <th class="py-1.5 pr-3 font-normal">Código</th>
+                                        <th class="py-1.5 pr-3 font-normal">Descripción</th>
+                                        <th class="py-1.5 pr-3 text-right font-normal">Cantidad</th>
+                                        <th class="py-1.5 pr-3 text-right font-normal">Desc.</th>
+                                        <th class="py-1.5 pr-3 text-right font-normal">Precio unit.</th>
+                                        <th class="py-1.5 text-right font-normal">Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($pedido->lineas->sortBy('linea_num')->values() as $numero => $linea)
+                                        <tr class="border-b border-acero align-top last:border-b-0">
+                                            <td class="cifras py-2 pr-3 text-niquel">{{ $numero }}</td>
+                                            <td class="cifras py-2 pr-3 font-medium whitespace-nowrap">{{ $linea->codigo_producto }}</td>
+                                            <td class="py-2 pr-3">{{ $linea->descripcion }}</td>
+                                            <td class="cifras py-2 pr-3 text-right">{{ rtrim(rtrim(number_format($linea->cantidad, 3, ',', '.'), '0'), ',') }}</td>
+                                            <td class="cifras py-2 pr-3 text-right whitespace-nowrap">{{ $linea->atp_descuento_pct > 0 ? rtrim(rtrim(number_format($linea->atp_descuento_pct, 2, ',', '.'), '0'), ',').' %' : '—' }}</td>
+                                            <td class="cifras py-2 pr-3 text-right whitespace-nowrap">
+                                                $ {{ number_format($linea->precio_unitario, 0, ',', '.') }}
+                                                @if ($linea->precio_manual !== null)
+                                                    <span class="mt-0.5 block text-xs font-medium text-amber-900">Corregir en SAP</span>
+                                                @endif
+                                            </td>
+                                            <td class="cifras py-2 text-right whitespace-nowrap">$ {{ number_format($linea->subtotal_linea, 0, ',', '.') }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <dl class="cifras mt-3 space-y-0.5 text-right">
+                            <div><dt class="inline text-niquel">Subtotal</dt> <dd class="inline">$ {{ number_format($pedido->subtotal, 0, ',', '.') }}</dd></div>
+                            <div><dt class="inline text-niquel">IVA</dt> <dd class="inline">$ {{ number_format($pedido->iva, 0, ',', '.') }}</dd></div>
+                            <div class="font-semibold"><dt class="inline">Total</dt> <dd class="inline">$ {{ number_format($pedido->total, 0, ',', '.') }}</dd></div>
+                        </dl>
+                    </div>
+                @endif
+                </div>
             @endforeach
         </div>
 
