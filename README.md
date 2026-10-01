@@ -102,6 +102,14 @@ error; solo se guarda lo que se seleccione. Una celda vacía no borra el dato
 que ya existe (el comando de consola sí lo hace). Lee `.xlsx` con
 `openspout/openspout`, que necesita las extensiones `zip` y `xmlreader`.
 
+**Las carteras se reconocen por su número**, no por el texto: en SAP el número
+es fijo y no se repite, y cuando cambia el asesor solo cambia el nombre. La
+carga (web y consola) asigna el cliente a la cartera con ese número aunque el
+nombre del archivo sea distinto, y **nunca la renombra**: eso se hace a mano en
+**Administración → Carteras**, donde también se crean y se desactivan. Renombrar
+no mueve clientes ni asesores, porque están ligados por id. Un texto de cartera
+sin número inicial es error.
+
 ### 5. Enlazar las carteras
 
 Los asesores SAP **no se siembran a mano**: se crean solos al importar clientes, con el texto exacto que trae SAP. Por eso este paso va al final:

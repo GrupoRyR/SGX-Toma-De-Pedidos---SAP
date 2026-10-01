@@ -201,7 +201,7 @@ normal que reporte la cartera `85 LILIAM HAIDEIDI HERRERA RAMIREZ`, que tiene
 un solo cliente y no está asignada a nadie.
 
 Esto es solo para la carga inicial. Después, los clientes y productos nuevos se
-crean desde **Administración → Clientes / Productos** (uno por uno) o
+crean desde **Administración → Clientes / Productos / Carteras** (uno por uno) o
 **Administración → Cargar archivo** (Excel o CSV, con vista previa y selección
 de filas). Nada de eso necesita terminal.
 
