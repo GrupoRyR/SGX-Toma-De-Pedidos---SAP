@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
+use Livewire\Livewire;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -333,6 +334,86 @@ class ReversarAprobadoTest extends TestCase
 
         $this->assertSame(EstadoPedido::BORRADOR, $pedido->fresh()->estado);
         $this->assertDatabaseHas('notificaciones', ['evento' => 'REVERSAR', 'resultado' => 'ERROR']);
+    }
+
+    public function test_quien_aprueba_ve_el_boton_de_reversar(): void
+    {
+        Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $this->pedidoAprobado()])
+            ->assertSee('Reversar a borrador');
+    }
+
+    public function test_el_asesor_no_ve_el_boton_de_reversar(): void
+    {
+        Livewire::actingAs($this->asesor)
+            ->test('pedido', ['pedido' => $this->pedidoAprobado()])
+            ->assertDontSee('Reversar a borrador');
+    }
+
+    public function test_desde_la_pantalla_queda_en_borrador_con_el_motivo(): void
+    {
+        $pedido = $this->pedidoAprobado();
+
+        Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $pedido])
+            ->set('pidiendoReversa', true)
+            ->assertDontSee('Confirmo que este pedido no se importó en DTW')
+            ->set('motivoReversa', 'Falta agregar las bisagras')
+            ->call('reversar')
+            ->assertSet('pidiendoReversa', false)
+            ->assertSee('Este pedido se devolvió')
+            ->assertSee('Falta agregar las bisagras');
+
+        $this->assertSame(EstadoPedido::BORRADOR, $pedido->fresh()->estado);
+    }
+
+    public function test_sin_motivo_la_pantalla_lo_dice_y_no_reversa(): void
+    {
+        $pedido = $this->pedidoAprobado();
+
+        Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $pedido])
+            ->set('pidiendoReversa', true)
+            ->call('reversar')
+            ->assertSee('Reversar necesita un motivo');
+
+        $this->assertSame(EstadoPedido::APROBADO, $pedido->fresh()->estado);
+    }
+
+    public function test_con_plantillas_descargadas_la_pantalla_advierte_y_pide_confirmar(): void
+    {
+        $pedido = $this->conPlantillasDescargadas($this->pedidoAprobado());
+
+        $pantalla = Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $pedido])
+            ->set('pidiendoReversa', true)
+            ->assertSee('Las plantillas de este pedido ya se descargaron')
+            ->assertSee('Confirmo que este pedido no se importó en DTW')
+            ->set('motivoReversa', 'Cambian cantidades')
+            ->call('reversar')
+            ->assertSee('Confirma que no se importo en DTW');
+
+        $this->assertSame(EstadoPedido::APROBADO, $pedido->fresh()->estado);
+
+        $pantalla->set('confirmaPlantillas', true)->call('reversar');
+
+        $this->assertSame(EstadoPedido::BORRADOR, $pedido->fresh()->estado);
+    }
+
+    public function test_quien_reverso_ve_si_el_aviso_salio(): void
+    {
+        $this->conBuzonConfigurado();
+        Http::fake([
+            'login.microsoftonline.com/*' => Http::response(['access_token' => 'token-falso'], 200),
+            'graph.microsoft.com/*' => Http::response('', 202),
+        ]);
+
+        Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $this->pedidoAprobado()])
+            ->set('pidiendoReversa', true)
+            ->set('motivoReversa', 'Faltan las bisagras')
+            ->call('reversar')
+            ->assertSee('Se le avisó a adriana.russi@segurex.com');
     }
 
     private function conBuzonConfigurado(): void

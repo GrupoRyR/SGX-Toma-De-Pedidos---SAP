@@ -38,6 +38,9 @@ new class extends Component
     public bool $pidiendoMotivo = false;
     public string $motivoDevolucion = '';
     public bool $pidiendoDevolucion = false;
+    public string $motivoReversa = '';
+    public bool $pidiendoReversa = false;
+    public bool $confirmaPlantillas = false;
 
     /**
      * Version del pedido tal como la vio quien esta revisando.
@@ -295,6 +298,32 @@ new class extends Component
         $this->pedido->refresh();
     }
 
+    /**
+     * Devuelve un pedido aprobado a borrador para que el asesor lo corrija.
+     *
+     * Es el camino cuando hay que agregar o cambiar algo despues de aprobado.
+     * La confirmacion de plantillas viaja al servicio, que es quien la exige.
+     */
+    public function reversar(ServicioPedidos $servicio): void
+    {
+        Gate::authorize('reversar', $this->pedido);
+        $this->error = '';
+
+        try {
+            $servicio->reversarABorrador($this->pedido, Auth::user(), $this->motivoReversa, $this->confirmaPlantillas);
+        } catch (\RuntimeException $e) {
+            $this->error = $e->getMessage();
+
+            return;
+        }
+
+        $this->pidiendoReversa = false;
+        $this->motivoReversa = '';
+        $this->confirmaPlantillas = false;
+        $this->pedido->refresh();
+        $this->versionVista = (int) $this->pedido->version;
+    }
+
     public function with(): array
     {
         $texto = trim($this->buscarProducto);
@@ -314,10 +343,11 @@ new class extends Component
             'puedeDevolver' => Gate::allows('devolver', $this->pedido),
             'puedeEliminar' => Gate::allows('eliminar', $this->pedido),
             'puedeAjustar' => Gate::allows('ajustar', $this->pedido),
+            'puedeReversar' => Gate::allows('reversar', $this->pedido),
             'esAutoaprobacion' => $this->pedido->creado_por === Auth::id(),
             'esRevisor' => Auth::user()->puedeAprobar(),
             'avisoRechazo' => $this->pedido->notificaciones()
-                ->where('evento', 'RECHAZO')
+                ->whereIn('evento', ['RECHAZO', 'REVERSAR'])
                 ->latest('id')
                 ->first(),
             'producto' => $this->productoElegido
@@ -428,7 +458,7 @@ new class extends Component
     @endif
 
     {{-- Acciones de quien revisa. Van arriba porque es lo unico que vino a hacer. --}}
-    @if ($puedeAprobar || $puedeLiberar || $puedeDevolver)
+    @if ($puedeAprobar || $puedeLiberar || $puedeDevolver || $puedeReversar)
         <section class="mb-4 rounded-lg bg-white p-4">
             @if ($puedeAprobar)
                 @if ($esAutoaprobacion)
@@ -502,6 +532,58 @@ new class extends Component
                                 class="rounded-lg px-4 py-3 text-niquel hover:text-grafito">
                             Cancelar
                         </button>
+                    </div>
+                @endif
+            @endif
+
+            {{-- Para agregar o cambiar algo después de aprobado: vuelve al
+                 asesor y repite la aprobación. Es secundario a propósito; el
+                 naranja queda para la acción principal. --}}
+            @if ($puedeReversar)
+                @if (! $pidiendoReversa)
+                    <button type="button" wire:click="$set('pidiendoReversa', true)"
+                            class="mt-3 w-full rounded-lg border border-acero-hondo px-4 py-3 text-sm font-medium hover:bg-acero">
+                        Reversar a borrador
+                    </button>
+                @else
+                    <div class="mt-3">
+                        <p class="mb-3 text-sm text-niquel">
+                            El pedido vuelve al asesor como borrador. Lo corrige, lo envía y pasa otra vez por aprobación.
+                        </p>
+
+                        {{-- Si las plantillas ya salieron, el pedido puede estar
+                             en un archivo de DTW. Reversarlo después de importado
+                             dejaría la web y SAP diciendo cosas distintas. --}}
+                        @if ($pedido->plantillas_descargadas_en)
+                            <div class="mb-3 rounded-lg bg-amber-50 px-3 py-2">
+                                <p class="text-sm font-medium text-amber-900">Las plantillas de este pedido ya se descargaron</p>
+                                <p class="mt-1 text-sm text-amber-800">
+                                    Se bajaron el <span class="cifras">{{ $pedido->plantillas_descargadas_en->format('d/m/Y H:i') }}</span>.
+                                    Si ya lo importaste en DTW, no lo reverses: márcalo como importado.
+                                </p>
+                                <label class="mt-2 flex items-start gap-2 text-sm text-amber-900">
+                                    <input type="checkbox" wire:model="confirmaPlantillas" class="mt-0.5 size-4">
+                                    <span>Confirmo que este pedido no se importó en DTW</span>
+                                </label>
+                            </div>
+                        @endif
+
+                        <label class="block">
+                            <span class="mb-1 block text-sm font-medium">¿Qué hay que corregir?</span>
+                            <textarea rows="2" wire:model="motivoReversa" autofocus
+                                      placeholder="El asesor va a leer esto para corregir el pedido"
+                                      class="w-full rounded-lg border border-acero-hondo px-3 py-2.5 focus:border-naranja focus:outline-none"></textarea>
+                        </label>
+                        <div class="mt-3 flex gap-2">
+                            <button type="button" wire:click="reversar" wire:loading.attr="disabled"
+                                    class="flex-1 rounded-lg bg-grafito px-4 py-3 font-semibold text-white hover:bg-grafito-suave">
+                                Reversar a borrador
+                            </button>
+                            <button type="button" wire:click="$set('pidiendoReversa', false)"
+                                    class="rounded-lg px-4 py-3 text-niquel hover:text-grafito">
+                                Cancelar
+                            </button>
+                        </div>
                     </div>
                 @endif
             @endif
