@@ -183,6 +183,15 @@ El caso real: el cliente cancela un item cuando el pedido ya paso por aprobacion
 
 Lo que si puede quedar viejo es un archivo **que alguien ya se llevo**. Por eso el pedido guarda la version que tenia al descargarse (`version_al_descargar`), y tanto la pantalla del pedido como la de plantillas avisan "cambio, vuelve a bajarlo". Se compara la version y no la hora: dos cambios dentro del mismo segundo tienen la misma marca de tiempo, pero nunca la misma version.
 
+### Reversar un aprobado a borrador
+
+Cuando hay que **agregar** o cambiar cantidades en un pedido ya aprobado, quitar lineas no alcanza. Quien puede aprobar ese pedido (la gerente de su canal, ADMIN_VENTAS o TI) lo **reversa a borrador** desde la pantalla del pedido: el asesor lo corrige, lo envia y vuelve a pasar por aprobacion.
+
+- Solo desde APROBADO o LIBERADO, y **nunca si ya entro a SAP**.
+- **Motivo obligatorio.** El asesor lo ve en el pedido y le llega por correo, igual que un rechazo. Queda en el log como `REVERSAR_APROBADO`.
+- Se limpian la aprobacion, la liberacion y la marca de descarga de plantillas. La copia congelada anterior (`snapshot_aprobado`) queda en el detalle del log: es la evidencia de lo que se habia aprobado. Al volver a aprobarlo se toma una nueva.
+- **Si las plantillas ya se descargaron**, pide confirmar que el pedido no se importo en DTW. Si ya se importo, lo correcto es marcarlo como importado y corregirlo en SAP; reversarlo y volverlo a aprobar lo metería dos veces.
+
 **Descargar no marca nada.** Marcar es un segundo paso, a proposito: entre una cosa y otra DTW puede rechazar el archivo, y marcarlos al descargar dejaria pedidos que la web da por puestos en SAP y que nadie volveria a mirar.
 
 ## El robot puente (en pausa)
