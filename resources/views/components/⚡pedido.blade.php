@@ -207,9 +207,23 @@ new class extends Component
         $this->pedido->refresh();
     }
 
-    /** Suelta el bloqueo y vuelve al cliente. */
+    /**
+     * Guarda el encabezado, suelta el bloqueo y vuelve al cliente.
+     *
+     * Los campos del encabezado solo viven en la pantalla hasta que alguien los
+     * guarda; las lineas, en cambio, se guardan al agregarlas. Si este boton no
+     * guardara tambien el encabezado, la orden de compra o las observaciones que
+     * el asesor escribio se perderian al salir, aunque el boton diga "Guardar".
+     *
+     * Solo se guarda si el pedido sigue siendo editable por quien sale: salir
+     * de un pedido que ya se envio no puede cambiarlo.
+     */
     public function terminarEdicion(ServicioPedidos $servicio)
     {
+        if (Gate::allows('editar', $this->pedido)) {
+            $this->guardarEncabezado($servicio);
+        }
+
         if ($this->pedido->bloqueado_por === Auth::id()) {
             $servicio->liberarBloqueo($this->pedido);
         }
