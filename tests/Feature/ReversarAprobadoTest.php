@@ -226,6 +226,22 @@ class ReversarAprobadoTest extends TestCase
         $this->assertFalse(Gate::forUser($otraGerente)->allows('reversar', $this->pedidoAprobado()));
     }
 
+    public function test_el_servicio_tampoco_deja_reversar_a_la_gerente_de_otro_canal(): void
+    {
+        // La regla vive en las dos capas, como el resto: la pantalla no es la
+        // unica puerta que va a tener el servicio.
+        $otraGerente = $this->usuario('otra.gerente@segurex.com', 'GERENTE_CANAL');
+        $otraGerente->canales()->attach(Canal::create(['nombre' => 'Construccion'])->id);
+        $pedido = $this->pedidoAprobado();
+
+        try {
+            $this->servicio->reversarABorrador($pedido, $otraGerente, 'Motivo');
+            $this->fail('La gerente de otro canal no deberia poder reversarlo.');
+        } catch (RuntimeException) {
+            $this->assertSame(EstadoPedido::APROBADO, $pedido->fresh()->estado);
+        }
+    }
+
     public function test_el_asesor_no_lo_reversa(): void
     {
         $pedido = $this->pedidoAprobado();
@@ -322,6 +338,22 @@ class ReversarAprobadoTest extends TestCase
         ]);
     }
 
+    public function test_el_correo_no_dice_rechazado_cuando_se_reverso(): void
+    {
+        // Se comparte la plantilla con el rechazo; tiene que servir para los dos.
+        $this->conBuzonConfigurado();
+        Http::fake([
+            'login.microsoftonline.com/*' => Http::response(['access_token' => 'token-falso'], 200),
+            'graph.microsoft.com/*' => Http::response('', 202),
+        ]);
+
+        $this->servicio->reversarABorrador($this->pedidoAprobado(), $this->gerente, 'Faltan las bisagras');
+
+        Http::assertSent(fn (Request $p) => str_contains($p->url(), 'sendMail')
+            && str_starts_with($p['message']['subject'], 'Te devolvieron el pedido')
+            && ! str_contains(mb_strtolower($p['message']['subject'].$p['message']['body']['content']), 'rechaz'));
+    }
+
     public function test_si_graph_falla_el_pedido_igual_queda_en_borrador(): void
     {
         $this->conBuzonConfigurado();
@@ -398,6 +430,23 @@ class ReversarAprobadoTest extends TestCase
         $pantalla->set('confirmaPlantillas', true)->call('reversar');
 
         $this->assertSame(EstadoPedido::BORRADOR, $pedido->fresh()->estado);
+    }
+
+    public function test_cancelar_limpia_la_confirmacion_de_dtw(): void
+    {
+        // Cada intento de reversar tiene que confirmar de nuevo: una casilla
+        // que sobrevive al cancelar es una confirmacion que nadie dio.
+        $pedido = $this->conPlantillasDescargadas($this->pedidoAprobado());
+
+        Livewire::actingAs($this->gerente)
+            ->test('pedido', ['pedido' => $pedido])
+            ->set('pidiendoReversa', true)
+            ->set('confirmaPlantillas', true)
+            ->set('motivoReversa', 'Cambian cantidades')
+            ->call('cancelarReversa')
+            ->assertSet('pidiendoReversa', false)
+            ->assertSet('confirmaPlantillas', false)
+            ->assertSet('motivoReversa', '');
     }
 
     public function test_quien_reverso_ve_si_el_aviso_salio(): void

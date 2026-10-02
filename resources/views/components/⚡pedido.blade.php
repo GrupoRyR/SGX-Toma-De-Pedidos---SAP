@@ -317,11 +317,23 @@ new class extends Component
             return;
         }
 
+        $this->cancelarReversa();
+        $this->pedido->refresh();
+        $this->versionVista = (int) $this->pedido->version;
+    }
+
+    /**
+     * Cierra el panel y olvida lo que se lleno.
+     *
+     * Sobre todo la casilla de DTW: cada intento tiene que confirmarla de nuevo.
+     * Si sobreviviera al cancelar, el siguiente intento reversaria con una
+     * confirmacion que nadie dio en ese momento.
+     */
+    public function cancelarReversa(): void
+    {
         $this->pidiendoReversa = false;
         $this->motivoReversa = '';
         $this->confirmaPlantillas = false;
-        $this->pedido->refresh();
-        $this->versionVista = (int) $this->pedido->version;
     }
 
     public function with(): array
@@ -579,7 +591,7 @@ new class extends Component
                                     class="flex-1 rounded-lg bg-grafito px-4 py-3 font-semibold text-white hover:bg-grafito-suave">
                                 Reversar a borrador
                             </button>
-                            <button type="button" wire:click="$set('pidiendoReversa', false)"
+                            <button type="button" wire:click="cancelarReversa"
                                     class="rounded-lg px-4 py-3 text-niquel hover:text-grafito">
                                 Cancelar
                             </button>

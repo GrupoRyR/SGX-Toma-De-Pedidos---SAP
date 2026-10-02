@@ -442,6 +442,13 @@ class ServicioPedidos
                 throw new RuntimeException('Solo se reversa un pedido aprobado que todavia no entro a SAP.');
             }
 
+            // El alcance se revisa aqui tambien, no solo en la politica: una
+            // gerente reversa los pedidos de su canal y ninguno mas, entre por
+            // donde entre.
+            if (! Pedido::visiblePara($usuario)->whereKey($actual->getKey())->exists()) {
+                throw new RuntimeException('No tienes permiso para reversar este pedido.');
+            }
+
             if ($actual->bloqueadoPorOtro($usuario)) {
                 throw new RuntimeException('Alguien esta editando este pedido en este momento.');
             }
