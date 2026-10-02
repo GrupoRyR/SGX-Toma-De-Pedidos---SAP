@@ -46,6 +46,7 @@ al asesor: el rechazo solo existe para pedidos PENDIENTE.
 - [x] T1 — `ServicioPedidos::reversarABorrador` + `PedidoPolicy::reversar`, con bitácora y correo. Pruebas.
 - [x] T2 — Botón y confirmación en `⚡pedido` (motivo, advertencia de plantillas). Pruebas.
 - [x] T3 — Documentación y estilos compilados.
+- [x] T4 — Correcciones de la revisión: el servicio valida el canal; Cancelar limpia la confirmación de DTW; prueba de que el correo no dice "rechazado". 301 pruebas en verde.
 
 ## Criterios de aceptación
 
@@ -62,10 +63,22 @@ al asesor: el rechazo solo existe para pedidos PENDIENTE.
 |---|---|---|---|---|
 | T1 | delegada | 2+ archivos no triviales | 832c4c0 | ver abajo |
 | T2 | delegada | 2+ archivos no triviales | 84e0d92 | ver abajo |
-| T3 | inline | docs mecanicos + build | (este commit) | pasiva |
+| T1 | — | revisión RDD por partes | 832c4c0 | aprobada (review-7fba4b8d72da8fb2), 3 observaciones |
+| T2 | — | revisión RDD por partes | 84e0d92 | aprobada (review-16e8a109c324623b), 2 observaciones |
+| T3 | inline | docs mecanicos + build | c692cc8 | pasiva |
+| T4 | inline | 3 archivos, correcciones de la revisión | (ver git log) | pendiente |
 
 ## Próximo paso
 
 `php artisan test`: 298 en verde (276 + 22 nuevas). Revisado en el navegador: la gerente de otro canal recibe 403 en el pedido; César ve "Reversar a borrador" en el #5000 con la advertencia de plantillas descargadas y la casilla de confirmación (no se ejecutó la reversa sobre datos de desarrollo).
 
 Despliegue: solo archivos + `view:cache`; sin migraciones ni `vendor/`. Independiente de `feat/carteras`.
+
+## Pendiente para cuando se retome el robot puente
+
+La revisión señaló que un pedido LIBERADO se puede reversar mientras
+`importado_sap` sea falso. Si el robot ya tomó el pedido pero todavía no lo
+marcó como importado, la web lo mostraría en borrador mientras SAP lo crea.
+Hoy no aplica (el robot está en pausa y la carga es manual por DTW). Al
+retomarlo, reversar debe exigir que el robot no lo haya tomado, igual que
+`PedidoPolicy::devolver`.
