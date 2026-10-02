@@ -217,11 +217,23 @@ new class extends Component
      *
      * Solo se guarda si el pedido sigue siendo editable por quien sale: salir
      * de un pedido que ya se envio no puede cambiarlo.
+     *
+     * Si el guardado falla (una fecha que no se puede leer, la base que no
+     * responde), no se sale: perder en silencio lo que el asesor escribio es
+     * peor que pedirle que lo corrija. El bloqueo sigue siendo suyo, y si se va
+     * sin corregir vence solo como cualquier otro.
      */
     public function terminarEdicion(ServicioPedidos $servicio)
     {
         if (Gate::allows('editar', $this->pedido)) {
-            $this->guardarEncabezado($servicio);
+            try {
+                $this->guardarEncabezado($servicio);
+            } catch (\Exception $e) {
+                report($e);
+                $this->error = 'No se pudo guardar el pedido. Revisa los datos del encabezado, como la fecha de facturación, e inténtalo de nuevo.';
+
+                return null;
+            }
         }
 
         if ($this->pedido->bloqueado_por === Auth::id()) {

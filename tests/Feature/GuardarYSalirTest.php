@@ -105,6 +105,25 @@ class GuardarYSalirTest extends TestCase
         $this->assertNull($pedido->fresh()->bloqueado_por);
     }
 
+    public function test_si_no_se_puede_guardar_avisa_y_no_sale(): void
+    {
+        // Salir sin guardar perderia lo escrito sin decir nada. Mejor quedarse,
+        // mostrar por que y dejar que el asesor lo corrija; el bloqueo sigue
+        // siendo suyo y vence solo si se va.
+        $pedido = $this->borrador();
+
+        Livewire::actingAs($this->asesor)
+            ->test('pedido', ['pedido' => $pedido])
+            ->set('orden_compra', 'OC-9')
+            ->set('fecha_facturacion', 'no-es-una-fecha')
+            ->call('terminarEdicion')
+            ->assertNoRedirect()
+            ->assertSee('No se pudo guardar');
+
+        $this->assertNull($pedido->fresh()->orden_compra);
+        $this->assertSame($this->asesor->id, $pedido->fresh()->bloqueado_por);
+    }
+
     public function test_quien_solo_lo_mira_no_cambia_el_encabezado_al_salir(): void
     {
         // Un pedido aprobado ya no es editable por el asesor: salir no puede
