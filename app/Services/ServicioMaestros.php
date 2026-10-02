@@ -205,6 +205,7 @@ class ServicioMaestros
                 'cambios' => [],
                 'motivo' => null,
                 'avisos' => [],
+                'cartera_distinta' => null,
                 'valores' => $valores,
             ];
 
@@ -245,8 +246,16 @@ class ServicioMaestros
             $resultado['cambios'] = $cambios;
             $resultado['estado'] = ! $actual ? 'NUEVO' : ($cambios ? 'CAMBIA' : 'IGUAL');
             $resultado['avisos'] = $esClientes && $resultado['estado'] !== 'IGUAL'
-                ? $this->avisosCliente($cambios, $actual, $contexto, $valores)
+                ? $this->avisosCliente($cambios, $actual, $contexto)
                 : [];
+
+            // El nombre distinto se avisa aunque la fila no cambie nada: el caso
+            // mas comun es un cliente que sigue en la misma cartera mientras SAP
+            // la renombro, y justo ese es el que el admin necesita ver.
+            if ($esClientes && $distinta = $this->carteraConOtroNombre($valores, $contexto)) {
+                $resultado['cartera_distinta'] = $distinta;
+                array_unshift($resultado['avisos'], "La cartera {$distinta['numero']} se llama \"{$distinta['aqui']}\" aqui y \"{$distinta['archivo']}\" en el archivo: se usa la existente. Para renombrarla, ve a Carteras.");
+            }
 
             return $resultado;
         }, $filas);
@@ -462,7 +471,7 @@ class ServicioMaestros
      * va a ver (la visibilidad depende de que algun asesor tenga la cartera) y
      * si el archivo nombra la cartera distinto de como esta aqui.
      */
-    private function avisosCliente(array $cambios, ?Cliente $actual, array $contexto, array $valores): array
+    private function avisosCliente(array $cambios, ?Cliente $actual, array $contexto): array
     {
         $avisos = [];
 
@@ -474,17 +483,12 @@ class ServicioMaestros
             $texto = $cambios['asesor']['despues'];
             $numero = AsesorSap::numeroDelTexto($texto);
             $cartera = $contexto['carteras'][$numero] ?? null;
-            $enArchivo = trim((string) ($valores['asesor'] ?? ''));
 
+            // El nombre distinto se avisa aparte, en analizarCarga, para que
+            // tambien llegue a las filas que no cambian nada.
             if (! $cartera) {
                 $avisos[] = "Cartera nueva \"{$texto}\": ningun asesor la tiene asignada todavia, asi que nadie vera este cliente.";
             } else {
-                // La carga nunca renombra: un error de digitacion en el archivo
-                // no debe cambiarle el nombre a la cartera de nadie.
-                if ($enArchivo !== $cartera->codigo_texto) {
-                    $avisos[] = "La cartera {$numero} se llama \"{$cartera->codigo_texto}\" aqui y \"{$enArchivo}\" en el archivo: se usa la existente. Para renombrarla, ve a Carteras.";
-                }
-
                 if (! $cartera->activo) {
                     $avisos[] = "La cartera {$numero} esta inactiva: el cliente queda en ella igual.";
                 }
@@ -498,6 +502,28 @@ class ServicioMaestros
         }
 
         return $avisos;
+    }
+
+    /**
+     * La cartera del archivo existe aqui con el mismo numero pero otro nombre.
+     *
+     * La carga nunca renombra: un error de digitacion en el archivo no debe
+     * cambiarle el nombre a la cartera de nadie. Lo que si hace es avisar, para
+     * que el admin la renombre a mano si de verdad cambio en SAP.
+     *
+     * @return array{numero: int, aqui: string, archivo: string}|null
+     */
+    private function carteraConOtroNombre(array $valores, array $contexto): ?array
+    {
+        $enArchivo = trim((string) ($valores['asesor'] ?? ''));
+        $numero = AsesorSap::numeroDelTexto($enArchivo);
+        $cartera = $numero === null ? null : ($contexto['carteras'][$numero] ?? null);
+
+        if (! $cartera || $cartera->codigo_texto === $enArchivo) {
+            return null;
+        }
+
+        return ['numero' => $numero, 'aqui' => $cartera->codigo_texto, 'archivo' => $enArchivo];
     }
 
     private function aplicarCliente(array $fila): void

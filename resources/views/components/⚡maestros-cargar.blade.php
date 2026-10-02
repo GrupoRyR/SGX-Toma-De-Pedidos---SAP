@@ -185,6 +185,10 @@ new class extends Component
                 'IGUAL' => $porEstado['IGUAL'] ?? 0,
                 'ERROR' => $porEstado['ERROR'] ?? 0,
             ],
+            // Una vez por cartera, aunque la traigan cien clientes: es el aviso
+            // que dice "renombra esta cartera", no un aviso por fila.
+            'carterasDistintas' => collect($this->filas)->pluck('cartera_distinta')->filter()
+                ->unique('numero')->sortBy('numero')->values()->all(),
             'visibles' => $this->filtro === 'TODAS'
                 ? $this->filas
                 : array_values(array_filter($this->filas, fn ($f) => $f['estado'] === $this->filtro)),
@@ -260,6 +264,22 @@ new class extends Component
     </section>
 
     @if ($filas)
+        @if ($carterasDistintas)
+            <div class="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p class="font-medium">Carteras que en el archivo tienen otro nombre</p>
+                @foreach ($carterasDistintas as $distinta)
+                    <p class="mt-1">
+                        <span class="cifras font-medium">{{ $distinta['numero'] }}</span>:
+                        aquí se llama «{{ $distinta['aqui'] }}», en el archivo «{{ $distinta['archivo'] }}».
+                    </p>
+                @endforeach
+                <p class="mt-2">
+                    La carga no las renombra. Si cambiaron en SAP, renómbralas en
+                    <a href="{{ route('maestros-carteras') }}" wire:navigate class="font-medium underline underline-offset-2">Carteras</a>.
+                </p>
+            </div>
+        @endif
+
         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <p class="text-sm text-niquel">
                 <span class="font-medium text-grafito">{{ $nombreArchivo }}</span>

@@ -239,6 +239,41 @@ class CargaMaestrosTest extends TestCase
         $this->assertSame(1, AsesorSap::count());
     }
 
+    public function test_un_cliente_igual_con_la_cartera_renombrada_en_sap_tambien_avisa(): void
+    {
+        // El caso real: en SAP la 14 paso a otro nombre y el cliente sigue en
+        // la 14. La fila no cambia nada, pero el admin tiene que enterarse para
+        // renombrar la cartera aqui.
+        $componente = $this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0507,RIVERA TUTA JOSE OSVALDO,14 VACANTE\n");
+
+        $fila = $this->fila($componente, 2);
+        $this->assertSame('IGUAL', $fila['estado']);
+        $this->assertContains(
+            'La cartera 14 se llama "14 MONICA RIVERA AREVALO" aqui y "14 VACANTE" en el archivo: se usa la existente. Para renombrarla, ve a Carteras.',
+            $fila['avisos'],
+        );
+    }
+
+    public function test_la_vista_previa_resume_una_vez_cada_cartera_con_otro_nombre(): void
+    {
+        // Muchos clientes de la misma cartera: el resumen la nombra una sola vez.
+        $componente = $this->cargarCsv("Codigo SN,Nombre,Asesor\n"
+            ."CN0507,RIVERA TUTA JOSE OSVALDO,14 VACANTE\n"
+            ."CN0491,PUERTAS METALICAS COLOMBIANAS SAS,14 VACANTE\n");
+
+        $componente
+            ->assertSee('Carteras que en el archivo tienen otro nombre')
+            ->assertSeeHtml(route('maestros-carteras'));
+
+        $this->assertSame(1, substr_count($componente->html(), 'aquí se llama'));
+    }
+
+    public function test_sin_diferencia_de_nombre_no_hay_resumen(): void
+    {
+        $this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0507,RIVERA TUTA JOSE OSVALDO,14 MONICA RIVERA AREVALO\n")
+            ->assertDontSee('Carteras que en el archivo tienen otro nombre');
+    }
+
     public function test_una_cartera_sin_numero_es_error(): void
     {
         $fila = $this->fila($this->cargarCsv("Codigo SN,Nombre,Asesor\nCN0777,FERRETERIA OTRA,MONICA RIVERA\n"), 2);
