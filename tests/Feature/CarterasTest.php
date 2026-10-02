@@ -33,6 +33,23 @@ class CarterasTest extends TestCase
         $this->assertSame(14, $cartera->refresh()->numero);
     }
 
+    public function test_no_se_crea_una_cartera_sin_numero(): void
+    {
+        // El indice unico admite varios NULL: sin esta defensa podrian quedar
+        // carteras sin numero, y repetidas, que es justo lo que el numero evita.
+        $error = null;
+
+        try {
+            AsesorSap::create(['codigo_texto' => 'SIN NUMERO']);
+        } catch (RuntimeException $e) {
+            $error = $e;
+        }
+
+        $this->assertNotNull($error, 'Una cartera sin numero no deberia poder crearse.');
+        $this->assertStringContainsString('SIN NUMERO', $error->getMessage());
+        $this->assertSame(0, AsesorSap::count());
+    }
+
     public function test_saca_el_numero_del_texto_de_sap(): void
     {
         $this->assertSame(14, AsesorSap::numeroDelTexto('14 MONICA RIVERA AREVALO'));

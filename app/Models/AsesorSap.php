@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use RuntimeException;
 
 /**
  * Cartera de asesor tal como la nombra SAP, por ejemplo
@@ -31,6 +32,13 @@ class AsesorSap extends Model
         // no tiene que acordarse de llenar el numero aparte.
         static::creating(function (AsesorSap $cartera) {
             $cartera->numero ??= self::numeroDelTexto((string) $cartera->codigo_texto);
+
+            // El numero es la llave con SAP. El indice unico no lo protege del
+            // todo: admite varios NULL, asi que una cartera sin numero entraria
+            // en silencio, y repetida. Se corta aqui, entre por donde entre.
+            if ($cartera->numero === null) {
+                throw new RuntimeException("La cartera \"{$cartera->codigo_texto}\" no empieza con un numero: en SAP toda cartera lo tiene.");
+            }
         });
     }
 
@@ -63,7 +71,7 @@ class AsesorSap extends Model
      * el archivo no debe cambiarle el nombre a nadie). Si no existe, se crea
      * con el texto tal cual. Lo usan la carga web y el comando de consola.
      *
-     * @throws \RuntimeException si el texto no empieza con el numero
+     * @throws RuntimeException si el texto no empieza con el numero
      */
     public static function resolverDesdeTexto(string $texto): self
     {
@@ -71,7 +79,7 @@ class AsesorSap extends Model
         $numero = self::numeroDelTexto($texto);
 
         if ($numero === null) {
-            throw new \RuntimeException("La cartera \"{$texto}\" no empieza con su numero (por ejemplo \"14 MONICA RIVERA AREVALO\").");
+            throw new RuntimeException("La cartera \"{$texto}\" no empieza con su numero (por ejemplo \"14 MONICA RIVERA AREVALO\").");
         }
 
         return self::firstOrCreate(
