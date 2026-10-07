@@ -231,7 +231,7 @@ new class extends Component
                             </div>
                             <div>
                                 <dt class="text-xs text-niquel">Fecha de entrega <span class="font-mono">DocDueDate</span></dt>
-                                <dd class="cifras">{{ $pedido->fecha_facturacion?->format('d/m/Y') ?? '—' }}</dd>
+                                <dd class="cifras">{{ ($pedido->fecha_facturacion ?? $pedido->created_at)?->format('d/m/Y') ?? '—' }}</dd>
                             </div>
                             <div class="sm:col-span-2">
                                 <dt class="text-xs text-niquel">Comentarios <span class="font-mono">Comments</span></dt>
@@ -239,8 +239,8 @@ new class extends Component
                             </div>
                             @if ($pedido->direccion_2)
                                 <div class="sm:col-span-2">
-                                    <dt class="text-xs text-niquel">Dirección de entrega <span class="font-mono">ShipToStreet / ShipToCity</span></dt>
-                                    <dd>{{ mb_strtoupper($pedido->direccion_2) }} · {{ mb_strtoupper((string) $pedido->ciudad_2) }}</dd>
+                                    <dt class="text-xs text-niquel">Dirección de entrega <span class="font-mono">ShipToStreet / ShipToCity / ShipToCounty / ShipToCountry</span></dt>
+                                    <dd>{{ mb_strtoupper($pedido->direccion_2) }} · {{ mb_strtoupper((string) $pedido->ciudad_2) }} · CO · CO</dd>
                                 </div>
                             @endif
                         </dl>

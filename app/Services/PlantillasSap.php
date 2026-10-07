@@ -90,7 +90,8 @@ class PlantillasSap
             'DocNum' => $pedido->id,
             'CardCode' => $pedido->codigo_cliente,
             'DocDate' => $pedido->created_at?->format('Y-m-d'),
-            'DocDueDate' => $pedido->fecha_facturacion?->format('Y-m-d'),
+            // DTW exige DocDueDate: sin fecha de facturacion va la del pedido.
+            'DocDueDate' => ($pedido->fecha_facturacion ?? $pedido->created_at)?->format('Y-m-d'),
             // La app vieja manda la fecha de creacion en DocTime, no una hora.
             // Se replica tal cual: cambiarlo aqui es cambiar lo que entra a SAP.
             'DocTime' => $pedido->created_at?->format('Y-m-d'),
@@ -131,10 +132,13 @@ class PlantillasSap
                 // En mayusculas, como las escribe la app vieja.
                 'ShipToStreet' => mb_strtoupper((string) $pedido->direccion_2),
                 'ShipToCity' => mb_strtoupper((string) $pedido->ciudad_2),
+                // Departamento y pais fijos: todas las entregas son en Colombia.
+                'ShipToCounty' => 'CO',
+                'ShipToCountry' => 'CO',
             ])
             ->values();
 
-        return $this->comoTexto($filas, ['DocEntry', 'ShipToStreet', 'ShipToCity']);
+        return $this->comoTexto($filas, ['DocEntry', 'ShipToStreet', 'ShipToCity', 'ShipToCounty', 'ShipToCountry']);
     }
 
     /**

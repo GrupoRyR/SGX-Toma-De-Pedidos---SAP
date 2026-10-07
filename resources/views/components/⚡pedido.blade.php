@@ -166,6 +166,15 @@ new class extends Component
     {
         Gate::authorize('editar', $this->pedido);
 
+        // SAP corta la direccion de entrega en 60 y los comentarios en 250.
+        $this->validate([
+            'direccion_2' => ['nullable', 'string', 'max:60'],
+            'observaciones' => ['nullable', 'string', 'max:250'],
+        ], [
+            'direccion_2.max' => 'La dirección alterna no puede pasar de 60 caracteres.',
+            'observaciones.max' => 'Las observaciones no pueden pasar de 250 caracteres.',
+        ]);
+
         $this->pedido->update([
             'orden_compra' => $this->orden_compra ?: null,
             'fecha_facturacion' => $this->fecha_facturacion ?: null,
@@ -228,6 +237,9 @@ new class extends Component
         if (Gate::allows('editar', $this->pedido)) {
             try {
                 $this->guardarEncabezado($servicio);
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                // Los errores de largo se muestran junto a su campo.
+                throw $e;
             } catch (\Exception $e) {
                 report($e);
                 $this->error = 'No se pudo guardar el pedido. Revisa los datos del encabezado, como la fecha de facturación, e inténtalo de nuevo.';
@@ -922,10 +934,13 @@ new class extends Component
                     <div class="space-y-2">
                         <label class="block">
                             <span class="sr-only">Dirección de entrega alterna</span>
-                            <input type="text" wire:model.blur="direccion_2" placeholder="Dirección"
+                            <input type="text" wire:model.blur="direccion_2" placeholder="Dirección" maxlength="60"
                                    class="w-full rounded-lg border border-acero-hondo px-3 py-2.5
                                           placeholder:text-niquel-claro focus:border-naranja focus:outline-none">
                         </label>
+                        @error('direccion_2')
+                            <p class="text-sm text-red-700">{{ $message }}</p>
+                        @enderror
 
                         <label class="block">
                             <span class="sr-only">Ciudad de la dirección alterna</span>
@@ -951,8 +966,11 @@ new class extends Component
 
                 <label class="block">
                     <span class="mb-1 block text-xs text-niquel">Observaciones</span>
-                    <textarea rows="2" wire:model.blur="observaciones"
+                    <textarea rows="2" wire:model.blur="observaciones" maxlength="250"
                               class="w-full rounded-lg border border-acero-hondo px-3 py-2.5 focus:border-naranja focus:outline-none"></textarea>
+                    @error('observaciones')
+                        <span class="mt-1 block text-sm text-red-700">{{ $message }}</span>
+                    @enderror
                 </label>
             </div>
         </section>

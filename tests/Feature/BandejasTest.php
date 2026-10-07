@@ -100,6 +100,19 @@ class BandejasTest extends TestCase
             ->assertDontSee('RIVERA TUTA JOSE OSVALDO');
     }
 
+    public function test_la_bandeja_muestra_el_valor_sin_iva(): void
+    {
+        // Quien aprueba mira el valor antes de impuestos, no el total con IVA.
+        $pedido = $this->pedidoPendiente()->fresh();
+        $this->assertNotEquals((float) $pedido->subtotal, (float) $pedido->total);
+
+        Livewire::actingAs($this->gerente)
+            ->test('bandeja')
+            ->assertSee('$ '.number_format($pedido->subtotal, 0, ',', '.'))
+            ->assertSee('Valor sin IVA')
+            ->assertDontSee('$ '.number_format($pedido->total, 0, ',', '.'));
+    }
+
     public function test_la_bandeja_arranca_en_pendientes(): void
     {
         Livewire::actingAs($this->gerente)->test('bandeja')->assertSet('estado', 'PENDIENTE');

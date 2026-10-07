@@ -143,7 +143,10 @@ new class extends Component
                     </p>
                 </div>
 
-                <span class="cifras shrink-0 font-medium">$ {{ number_format($pedido->total, 0, ',', '.') }}</span>
+                <span class="shrink-0 text-right">
+                    <span class="cifras block font-medium">$ {{ number_format($pedido->subtotal, 0, ',', '.') }}</span>
+                    <span class="block text-xs text-niquel">Valor sin IVA</span>
+                </span>
             </a>
         @empty
             <div class="px-6 py-14 text-center">

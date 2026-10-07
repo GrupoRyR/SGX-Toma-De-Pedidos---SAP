@@ -324,6 +324,37 @@ class PlantillasSapTest extends TestCase
         $this->assertSame((string) $pedido->id, $datos['U_SGX_IdPedidoApp']);
     }
 
+    public function test_sin_fecha_de_facturacion_la_entrega_es_la_fecha_del_pedido(): void
+    {
+        // DTW rechaza el encabezado si DocDueDate va vacio; cuando el asesor
+        // no puso fecha de facturacion se manda la fecha en que se hizo el pedido.
+        $pedido = $this->pedidoLiberado(['fecha_facturacion' => null]);
+        $pedido->forceFill(['created_at' => '2026-09-20 08:30:00'])->saveQuietly();
+
+        $archivos = $this->plantillas->archivos(collect([$pedido->fresh()]));
+        $datos = array_combine(
+            $this->encabezado($archivos['ENCABEZADO_PEDIDOS_SAP.txt']),
+            $this->datos($archivos['ENCABEZADO_PEDIDOS_SAP.txt'])[0],
+        );
+
+        $this->assertSame('2026-09-20', $datos['DocDueDate']);
+    }
+
+    public function test_revisar_muestra_la_fecha_del_pedido_si_no_hay_fecha_de_facturacion(): void
+    {
+        $pedido = $this->pedidoLiberado([
+            'fecha_facturacion' => null,
+            'direccion_2' => 'Calle 100 # 15 - 20', 'ciudad_2' => 'Bogota',
+        ]);
+        $pedido->forceFill(['created_at' => '2026-09-20 08:30:00'])->saveQuietly();
+
+        Livewire::actingAs($this->cesar)
+            ->test('plantillas')
+            ->call('alternarRevision', $pedido->id)
+            ->assertSee('20/09/2026')
+            ->assertSee('CALLE 100 # 15 - 20 · BOGOTA · CO · CO');
+    }
+
     public function test_las_lineas_van_numeradas_desde_cero(): void
     {
         $pedido = $this->servicio->crear($this->cliente, $this->asesor);
@@ -367,6 +398,9 @@ class PlantillasSapTest extends TestCase
         $this->assertSame((string) $conDireccion->id, $filas[0][0]);
         $this->assertSame('CALLE 100 # 15 - 20', $filas[0][1]);
         $this->assertSame('BOGOTA', $filas[0][2]);
+        // Departamento y pais van fijos en CO.
+        $this->assertSame('CO', $filas[0][3]);
+        $this->assertSame('CO', $filas[0][4]);
     }
 
     public function test_el_archivo_de_direcciones_trae_encabezado_aunque_no_haya_ninguna(): void
@@ -376,7 +410,7 @@ class PlantillasSapTest extends TestCase
         $archivos = $this->plantillas->archivos(collect([$this->pedidoLiberado()]));
 
         $this->assertSame(
-            ['DocEntry', 'ShipToStreet', 'ShipToCity'],
+            ['DocEntry', 'ShipToStreet', 'ShipToCity', 'ShipToCounty', 'ShipToCountry'],
             $this->encabezado($archivos['PLANTILLA_DIRECCIONES.txt'])
         );
     }
